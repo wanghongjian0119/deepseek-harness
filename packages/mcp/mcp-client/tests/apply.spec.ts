@@ -15,7 +15,7 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 // vi.mock factories are hoisted above every import/const, so the mock fns and
 // class must be created inside vi.hoisted to exist when the factories run.
 const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
-  const mockConnect = vi.fn<() => Promise<void>>()
+  const mockConnect = vi.fn<(_transport?: unknown, _options?: unknown) => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
   const mockCallTool = vi.fn<(
@@ -136,6 +136,23 @@ describe('mcp-client plugin module exports', () => {
     expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 10 })
   })
 
+  it('Config schema materializes the startup timeout and accepts an override', () => {
+    const omitted = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+    } as never)
+    expect(omitted.startupTimeoutMs).toBe(15_000)
+
+    const explicit = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      startupTimeoutMs: 3_000,
+    } as never)
+    expect(explicit.startupTimeoutMs).toBe(3_000)
+  })
+
   it('Config schema rejects an invalid reconnect block', () => {
     // schemastery unions wrap branch errors, so assert the throw only.
     expect(() => ConfigSchema({
@@ -189,6 +206,33 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockSetNotificationHandler).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(ctx.tools.get('remote')).toBeUndefined()
+  })
+
+  it('bounds the attempt handshake and its tool-list read with the startup timeout', async () => {
+    await apply(ctx, { ...stdioConfig, startupTimeoutMs: 1_234 })
+
+    expect(mockConnect).toHaveBeenCalledWith(expect.anything(), { timeout: 1_234 })
+    expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh', timeout: 1_234 })
+    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+  })
+
+  it('falls back to the default startup timeout when the config omits it', async () => {
+    // stdioConfig is programmatic: no schema materialized the default for it.
+    await apply(ctx, stdioConfig)
+
+    expect(mockConnect).toHaveBeenCalledWith(expect.anything(), { timeout: 15_000 })
+    expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh', timeout: 15_000 })
+  })
+
+  it('leaves the request timeout to the transport default on a list_changed re-sync', async () => {
+    await apply(ctx, stdioConfig)
+    mockListTools.mockClear()
+
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => void
+    handler()
+    await vi.waitFor(() => { expect(mockListTools).toHaveBeenCalled() })
+
+    expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh' })
   })
 
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {

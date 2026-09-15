@@ -17,7 +17,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import {
+  DEFAULT_MAX_INSTRUCTION_BYTES,
+  DEFAULT_STARTUP_TIMEOUT_MS,
+  RECONNECT_DEFAULTS,
+  resolveReconnectPolicy,
+  startConnection,
+} from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
@@ -68,6 +74,13 @@ export interface StdioConfig {
   cwd: string
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /**
+   * Timeout per connection attempt in milliseconds (default 15000): the
+   * handshake plus the `tools/list` read that follows it. Bounds how long this
+   * server holds plugin activation open, so an unresponsive server fails its
+   * attempt and enters the reconnect loop instead of stalling the Host.
+   */
+  startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
@@ -92,6 +105,13 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /**
+   * Timeout per connection attempt in milliseconds (default 15000): the
+   * handshake plus the `tools/list` read that follows it. Bounds how long this
+   * server holds plugin activation open, so an unresponsive server fails its
+   * attempt and enters the reconnect loop instead of stalling the Host.
+   */
+  startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
@@ -125,6 +145,7 @@ export const Config = z.union([
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    startupTimeoutMs: z.number().default(DEFAULT_STARTUP_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
@@ -135,6 +156,7 @@ export const Config = z.union([
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    startupTimeoutMs: z.number().default(DEFAULT_STARTUP_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,

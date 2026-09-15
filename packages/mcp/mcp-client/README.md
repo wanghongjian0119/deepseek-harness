@@ -59,6 +59,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `command` / `args` / `env` / `cwd` | — | stdio: executable, arguments, extra env merged over scrubbed ambient env, working directory |
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
+| `startupTimeoutMs` | `15,000` | Timeout per connection attempt: the handshake and the `tools/list` read that follows it |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
@@ -89,6 +90,8 @@ Images are supported when the current model accepts image input and the harness 
 ### Startup, updates, and reconnection
 
 The server's tools appear before the harness starts its first turn. When the server changes its tool list, the model's tool set updates automatically; if the update fails, the previous tool set keeps working.
+
+Activation waits for the server, but only within `startupTimeoutMs`: a server that does not finish its handshake and initial `tools/list` inside that budget fails the attempt — the harness starts without that server's tools and the reconnect loop keeps trying — so one unresponsive server costs that budget rather than the transport's 60-second default request timeout, which would otherwise become the delay before the harness announces itself. Reconnecting attempts carry the same budget; tool-list re-reads on an established connection are ordinary reads and are not covered by it.
 
 When a server connection drops — for example a local server process crashes — the plugin reconnects automatically with delays that double from 500 ms up to 30 s and then refreshes the tool set; reconnect progress is visible in the logs. During an outage the last known tools stay listed but calls to them fail until the server recovers. After ten consecutive failed attempts the server's tools are removed and reconnection stops until you reload the configuration or restart the harness; a server that stays connected for a while resets that counter. Set `reconnect.enabled: false` to disable automatic reconnection — tools then stay listed but fail until you reload. Editing the configuration entry reloads the server connection in place, and unchanged names stay unchanged.
 

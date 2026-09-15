@@ -30,6 +30,13 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  /**
+   * Timeout for the `tools/list` read backing this synchronization, in
+   * milliseconds; omission uses the transport's default request timeout.
+   * Connection attempts set it so a server that never answers discovery fails
+   * the attempt instead of holding plugin activation open.
+   */
+  listTimeoutMs?: number
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -120,7 +127,10 @@ export async function syncTools(
   const definitions = new Map<string, ToolDefinition>()
   const response = client.getServerCapabilities()?.tools === undefined
     ? { tools: [] }
-    : await client.listTools(undefined, { cacheMode: 'refresh' })
+    : await client.listTools(undefined, {
+      cacheMode: 'refresh',
+      ...opts.listTimeoutMs === undefined ? {} : { timeout: opts.listTimeoutMs },
+    })
   for (const tool of response.tools) {
     const publicName = publicToolName(opts.serverName, tool.name)
     if (definitions.has(publicName)) {
