@@ -48,6 +48,15 @@ export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 
+/**
+ * Default budget for one connection attempt (ms): the transport handshake plus
+ * the `tools/list` read that follows it. Kept well below the transport's
+ * 60-second default request timeout, which otherwise becomes the time a single
+ * unresponsive server holds plugin activation open — and with it the Host's
+ * readiness signal.
+ */
+export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000
+
 // The SDK's stdio transport owns two two-second termination grace periods.
 // Keep one additional second for the process-close event that proves the old
 // generation is gone; timing out fails closed instead of overlapping children.
@@ -132,12 +141,19 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
   }
+  const startupTimeoutMs = config.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
+  // Connection attempts — activation and every reconnect — bound their own
+  // handshake and tool-list read, so a server that never answers discovery
+  // fails the attempt and is retried instead of holding activation open for
+  // the transport's default request timeout. Re-syncs on an established
+  // connection are ordinary reads and keep that default.
+  const attemptOpts: ToolBridgeOptions = { ...opts, listTimeoutMs: startupTimeoutMs }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
   // and reconnect syncs always contain conflicts.
   const startupOpts: ToolBridgeOptions = config.failOnStartupError
-    ? { ...opts, registrationFailure: 'throw' }
-    : opts
+    ? { ...attemptOpts, registrationFailure: 'throw' }
+    : attemptOpts
 
   let disposed = false
   const maxInstructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
@@ -305,7 +321,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     let instructions: string
     try {
       transport = createTransport(config)
-      await generation.connect(transport)
+      await generation.connect(transport, { timeout: startupTimeoutMs })
       if (hasClosed()) {
         attemptSettled = true
         generationDown(generation)
@@ -320,7 +336,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (Buffer.byteLength(instructions) > maxInstructionBytes) {
         throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
       }
-      await enqueueSync(generation, startup ? startupOpts : opts)
+      await enqueueSync(generation, startup ? startupOpts : attemptOpts)
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so

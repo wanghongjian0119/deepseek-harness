@@ -193,6 +193,12 @@ describe('reconnect supervisor', () => {
     expect(instances).toHaveLength(2)
     expect(mockConnect).toHaveBeenCalledTimes(2)
 
+    // A reconnect is another attempt: it carries the same startup budget as
+    // activation, so a server that stops answering discovery fails its retry
+    // instead of stalling the supervisor.
+    expect(mockConnect).toHaveBeenLastCalledWith(expect.anything(), { timeout: 15_000 })
+    expect(mockListTools).toHaveBeenLastCalledWith(undefined, { cacheMode: 'refresh', timeout: 15_000 })
+
     // Post-recovery calls execute through the re-registered definition.
     const result = await ctx.tools.execute({
       signal: testToolSignal,

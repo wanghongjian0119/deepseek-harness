@@ -1680,6 +1680,13 @@ export interface StdioConfig {
   cwd: string
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /**
+   * Timeout per connection attempt in milliseconds (default 15000): the
+   * handshake plus the `tools/list` read that follows it. Bounds how long this
+   * server holds plugin activation open, so an unresponsive server fails its
+   * attempt and enters the reconnect loop instead of stalling the Host.
+   */
+  startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
@@ -1704,6 +1711,13 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /**
+   * Timeout per connection attempt in milliseconds (default 15000): the
+   * handshake plus the `tools/list` read that follows it. Bounds how long this
+   * server holds plugin activation open, so an unresponsive server fails its
+   * attempt and enters the reconnect loop instead of stalling the Host.
+   */
+  startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
