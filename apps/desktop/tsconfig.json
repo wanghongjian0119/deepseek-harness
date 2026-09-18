@@ -2,10 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
-  "include": [
-    "src"
-  ],
-  "references": []
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/boot/app-boot" },
+    { "path": "../../packages/util/home-paths" }
+  ]
 }
