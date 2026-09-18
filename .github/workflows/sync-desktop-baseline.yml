@@ -1,0 +1,70 @@
+# Keep the desktop self-update baseline current.
+#
+# The DeepSeek Harness desktop shell on this machine points its self-updater at
+# this fork (`DSH_DESKTOP_UPDATE_REPO=wanghongjian0119/deepseek-harness`). The
+# updater reads `GET /repos/<repo>/commits/master`, so `master` must stay equal
+# to `deepseek-ai/deepseek-harness@master` plus the MCP connection-attempt
+# budget fix — otherwise the desktop shell either misses upstream releases or
+# loses the fix that keeps an unresponsive MCP server from blocking startup.
+#
+# The fix cannot be contributed upstream: the official repository reports
+# `has_pull_requests: false` and `has_issues: false` (checked 2026-09-18), so
+# `POST /repos/deepseek-ai/deepseek-harness/pulls` fails and this fork is the
+# permanent carrier rather than a stopgap.
+#
+# This workflow rebases the fix onto every new upstream master and force-pushes
+# the result. It carries the fix as the source-and-tests-only baseline commit
+# (generated documentation is deliberately excluded so it cannot conflict), and
+# it refuses to run when `master`'s tip is not that commit.
+#
+# This file lives on the `ci` branch, which is this fork's default branch, so
+# the schedule fires without adding commits to `master`. A conflicting rebase
+# fails the job and leaves `master` untouched.
+name: sync-desktop-baseline
+
+on:
+  schedule:
+    # 01:23 Asia/Shanghai; upstream cuts releases most days.
+    - cron: '23 17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-desktop-baseline
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Rebase the MCP fix onto upstream master
+        env:
+          UPSTREAM_URL: https://github.com/deepseek-ai/deepseek-harness.git
+          FIX_SUBJECT: 'fix(mcp-client): bound one connection attempt'
+        run: |
+          set -euo pipefail
+          git config user.name 'dsh-desktop-baseline'
+          git config user.email 'dsh-desktop-baseline@users.noreply.github.com'
+          git fetch --no-tags "$UPSTREAM_URL" master:refs/remotes/upstream/master
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          baseline="$(git rev-parse refs/remotes/origin/master)"
+          subject="$(git log -1 --format=%s "$baseline")"
+          case "$subject" in
+            "$FIX_SUBJECT"*) ;;
+            *)
+              echo "::error::origin/master tip is not the desktop baseline fix commit: $subject"
+              exit 1
+              ;;
+          esac
+          if git merge-base --is-ancestor refs/remotes/upstream/master "$baseline"; then
+            echo "master already contains upstream/master; nothing to do"
+            exit 0
+          fi
+          git switch --detach refs/remotes/upstream/master
+          git -c core.hooksPath=/dev/null cherry-pick "$baseline"
+          git push --force-with-lease=refs/heads/master:"$baseline" origin HEAD:refs/heads/master
