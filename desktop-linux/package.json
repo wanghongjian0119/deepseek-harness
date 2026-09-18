@@ -1,0 +1,44 @@
+{
+  "name": "@deepseek-ai/dsh-desktop-linux",
+  "description": "Linux-only Electron desktop shell for the DeepSeek Harness Web GUI (.deb and AppImage): bundles the dsh web backend and opens it in a native window",
+  "version": "0.1.6-alpha.2",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wanghongjian0119/deepseek-harness-desktop.git",
+    "directory": "desktop-linux"
+  },
+  "homepage": "https://github.com/wanghongjian0119/deepseek-harness-desktop",
+  "author": {
+    "name": "DeepSeek AI",
+    "email": "deepseek-ai@users.noreply.github.com"
+  },
+  "type": "module",
+  "main": "lib/main.js",
+  "license": "MIT",
+  "files": [
+    "lib/**/*",
+    "preload/**/*",
+    "package.json"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:payload": "tsx scripts/assemble-payload.ts",
+    "build:icons": "tsx scripts/make-icon.ts",
+    "dev": "electron . --dev",
+    "package": "electron-builder --config electron-builder.yml --linux deb AppImage",
+    "dist": "pnpm run build && pnpm run build:icons && pnpm run build:payload && pnpm run package",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.0",
+    "sharp": "^0.34.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

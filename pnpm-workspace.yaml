@@ -13,6 +13,11 @@ packages:
   # Deploy root of the single-exe build: a pure dependency manifest whose
   # closure is what the exe bundles and what the Python runtime distributes.
   - python/sdk-runtime
+  # Fork-only Linux desktop shell and its deploy root. Both stay out of apps/*:
+  # that glob marks every entry a publishable release member bound to the
+  # workspace version, and upstream ships no Linux desktop target to share.
+  - desktop-linux
+  - desktop-linux/deploy-root
 
 overrides:
   'extract-zip>yauzl': '3.4.0'
@@ -50,6 +55,10 @@ allowBuilds:
   electron-winstaller: false
   # Store-index rewriting only needs msgpackr's portable JavaScript codec.
   msgpackr-extract: false
+  # The fork-only Linux desktop shell renders its icon set from SVG at package
+  # time; sharp's install script links the platform-native libvips binaries that
+  # rendering needs. Upstream apps/* builds take prebuilt PNGs and never install it.
+  sharp: true
 
 minimumReleaseAgeExclude:
   # Office engines and their API are qualified and released together by the kit repository.
