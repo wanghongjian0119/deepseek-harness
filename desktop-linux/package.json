@@ -15,6 +15,7 @@
   },
   "type": "module",
   "main": "lib/main.js",
+  "desktopName": "dsh-desktop",
   "license": "MIT",
   "files": [
     "lib/**/*",

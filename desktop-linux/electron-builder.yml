@@ -58,13 +58,14 @@ linux:
   # A full icon set (16x16 … 1024x1024) under build/icons: shipping only one
   # large hicolor size makes launchers fall back to the generic icon.
   icon: build/icons
-  desktop:
-    entry:
-      # Must match the window's actual WM_CLASS or the running window will
-      # not associate with this launcher entry (and GNOME shows a generic
-      # icon). Electron derives WM_CLASS from the package name
-      # (@deepseek-ai/dsh-desktop-linux → deepseek-ai-dsh-desktop-linux).
-      StartupWMClass: deepseek-ai-dsh-desktop-linux
+  # Derive the entry filename and StartupWMClass from package.json's
+  # `desktopName` instead of executableName. Electron reads the same field for
+  # the window's app_id, so the two agree by construction: hand-maintained,
+  # they drift, and a StartupWMClass that differs from the real WM_CLASS leaves
+  # the running window unassociated with this entry — the dock then shows a
+  # generic icon. `desktopName: dsh-desktop` happens to equal executableName,
+  # so the installed filename stays dsh-desktop.desktop.
+  syncDesktopName: true
   target:
     - AppImage
     - deb
