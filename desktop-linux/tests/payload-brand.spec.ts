@@ -28,6 +28,16 @@ const sourceBuildCss = (prefix: string): string => [
 ].join('')
 
 /**
+ * Prepend the windows-titlebar overrides upstream emits ahead of the base
+ * rules. They share the class names but carry none of the properties the brand
+ * patch rewrites, so they are what a first-rule-only pass lands on.
+ */
+const withTitlebarVariants = (css: string, prefix: string): string =>
+  `.${prefix}_brandIdentity{transform:translateY(1px)}`
+  + `.${prefix}_brandName{font-weight:400}`
+  + css
+
+/**
  * Sidebar CSS as upstream emits it for a release build: no stacked row, and an
  * 8px/16px chip beside the name inside the 24px brand box.
  */
@@ -105,6 +115,18 @@ describe('applyBrandTweaks', () => {
     expect(css).toContain('.cguSKG_localBuildBrand{white-space:nowrap;flex-direction:column;flex:none;justify-content:center;align-items:flex-start;gap:1px;height:33px;display:inline-flex}')
     expect(css).toContain('.cguSKG_brandIdentity{align-items:center;gap:8px;min-width:0;height:33px;display:inline-flex}')
     expect(css).toContain('.cguSKG_brandName{letter-spacing:.04em;align-items:center;gap:6px;min-width:0;height:33px;font-size:18px;font-weight:600;line-height:24px;display:inline-flex}')
+  })
+
+  it('restyles the base rule when a titlebar variant of the same class precedes it', async () => {
+    // The variant carries no height, so this is the case where a pass that
+    // stops at the first rule per class leaves the box at upstream's 24px and
+    // the taller row is clipped by `..._logoRow { overflow: hidden }`.
+    const prefix = 'cguSKG'
+    const css = await patchSidebar(withTitlebarVariants(sourceBuildCss(prefix), prefix))
+    expect(css).toContain(`.${prefix}_brandIdentity{transform:translateY(1px)}`)
+    expect(css).toContain(`.${prefix}_brandName{font-weight:400}`)
+    expect(css).toContain(`.${prefix}_brandIdentity{align-items:center;gap:8px;min-width:0;height:33px;display:inline-flex}`)
+    expect(css).toContain(`.${prefix}_brandName{letter-spacing:.04em;align-items:center;gap:6px;min-width:0;height:33px;font-size:18px;font-weight:600;line-height:24px;display:inline-flex}`)
   })
 
   it('enlarges the local-build title to the release size', async () => {

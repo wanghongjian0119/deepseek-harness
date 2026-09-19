@@ -486,8 +486,14 @@ async function resizeBrandRow(payload: string): Promise<void> {
   // Rewrite the declarations in place rather than the whole rule: upstream
   // owns property order and may add more of them. Each pattern anchors on the
   // start of the declaration so `height:` cannot match inside `line-height:`.
+  //
+  // Global, because one class carries several rules: a windows-titlebar
+  // variant precedes the base rule, and a non-global replace stops at the
+  // variant, whose body holds none of the rewritten properties and therefore
+  // reads as a miss — leaving the base rule, the one carrying the box height,
+  // at upstream's size.
   const restyle = (css: string, suffix: string, changes: readonly (readonly [RegExp, string])[]): string =>
-    css.replace(new RegExp(`([A-Za-z0-9]+_${suffix})\\{([^}]*)\\}`), (rule, selector: string, body: string) => {
+    css.replace(new RegExp(`([A-Za-z0-9]+_${suffix})\\{([^}]*)\\}`, 'g'), (rule, selector: string, body: string) => {
       let next = body
       for (const [pattern, replacement] of changes) next = next.replace(pattern, replacement)
       return next === body ? rule : `${selector}{${next}}`
