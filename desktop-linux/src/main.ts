@@ -74,13 +74,19 @@ const updateCenter = new UpdateCenter({
 
 /**
  * The app icon for the window/taskbar: the packaged `Resources/icon.png`
- * (extraResources), or the repo's `build/icon.png` in a source checkout.
- * macOS derives the dock icon from the bundle; Linux/Windows use this.
+ * (extraResources), or the repo's `build/icons/128x128.png` in a source
+ * checkout. macOS derives the dock icon from the bundle; Linux/Windows use
+ * this.
+ *
+ * Both paths stay at 128px. The icon reaches the window manager as
+ * `_NET_WM_ICON`, and Electron drops any larger image, leaving the property
+ * empty — the window then shows a generic icon wherever no desktop entry
+ * claims it.
  */
 function windowIconPath(): string | undefined {
   const packaged = join(process.resourcesPath, 'icon.png')
   if (existsSync(packaged)) return packaged
-  const dev = fileURLToPath(new URL('../build/icon.png', import.meta.url))
+  const dev = fileURLToPath(new URL('../build/icons/128x128.png', import.meta.url))
   return existsSync(dev) ? dev : undefined
 }
 

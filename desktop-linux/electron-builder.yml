@@ -22,8 +22,13 @@ extraResources:
     # its full hoisted closure on disk (a separate Node process reads it).
     filter:
       - "**/*"
-  # Window/taskbar icon referenced by the main process at runtime.
-  - from: build/icon.png
+  # Window/taskbar icon referenced by the main process at runtime. Must stay
+  # small: this one reaches the window manager as `_NET_WM_ICON`, and Electron
+  # drops an icon larger than 128px, leaving the property empty — with the
+  # 1024px build/icon.png the window carried no icon at all (measured on
+  # Electron 44: 128 sets the property, 256/512/1024 leave it empty). The
+  # launcher-facing hicolor set under build/icons keeps every large size.
+  - from: build/icons/128x128.png
     to: icon.png
 # The launcher wrapper sits beside the binary; the desktop entry runs it so
 # hosts whose sandbox cannot initialize (Ubuntu 23.10+ AppArmor userns
