@@ -76,9 +76,11 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /**
    * Timeout per connection attempt in milliseconds (default 15000): the
-   * handshake plus the `tools/list` read that follows it. Bounds how long this
-   * server holds plugin activation open, so an unresponsive server fails its
-   * attempt and enters the reconnect loop instead of stalling the Host.
+   * handshake plus the `tools/list` read that follows it. A server that
+   * exceeds it fails the attempt and is retried per `reconnect`. This bounds
+   * the Host's readiness signal only for `failOnStartupError` startups, so
+   * lowering it shortens nothing on the ordinary path — it only risks
+   * classifying a server whose startup legitimately outlasts it as dead.
    */
   startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -107,9 +109,11 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /**
    * Timeout per connection attempt in milliseconds (default 15000): the
-   * handshake plus the `tools/list` read that follows it. Bounds how long this
-   * server holds plugin activation open, so an unresponsive server fails its
-   * attempt and enters the reconnect loop instead of stalling the Host.
+   * handshake plus the `tools/list` read that follows it. A server that
+   * exceeds it fails the attempt and is retried per `reconnect`. This bounds
+   * the Host's readiness signal only for `failOnStartupError` startups, so
+   * lowering it shortens nothing on the ordinary path — it only risks
+   * classifying a server whose startup legitimately outlasts it as dead.
    */
   startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -166,12 +170,20 @@ export const Config = z.union([
 // ---- Plugin apply ----
 
 /**
- * Connect one MCP server and publish its initial tool generation before activation.
+ * Start the supervised connection for one MCP server and publish its tool
+ * generation whenever the connection comes up.
+ *
+ * The ordinary configuration does not wait for the first attempt: an
+ * unreachable server must not hold the Host's readiness signal, so its
+ * failure is logged and the supervisor's reconnect loop keeps trying. Only a
+ * `failOnStartupError` startup awaits that attempt and rejects this instance
+ * when it fails.
+ *
  * This entry remains explicitly `async`: Cordis treats a prototype-bearing
  * ordinary function as a constructor, whose returned Promise is not startup work.
  * @param ctx - plugin context carrying the tool registry.
  * @param config - resolved transport and server namespace configuration.
- * @returns startup readiness after connection and initial tool discovery settle.
+ * @returns startup readiness after the first attempt settles, for fatal startups only.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   // Fail loud at load: reconnect misconfiguration (including programmatic
@@ -213,13 +225,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }, { global: true })
   ctx.effect(() => dispose, 'mcp-client.connection')
 
-  // Block plugin activation on the initial connection + tool discovery so
-  // Cordis consumers observe the tools immediately after the fiber activates.
-  // When failOnStartupError is true, a failed initial attempt rejects the
-  // fiber (Cordis rolls it back); otherwise the error is logged and the
+  // Activation never waits on a healthy server and never stalls on a slow or
+  // unreachable one: the supervisor's reconnect loop owns outreach and
+  // registers the tool generation whenever the connection comes up. Only an
+  // explicitly fatal startup awaits that first attempt, so its failure rejects
+  // the fiber (Cordis rolls it back); otherwise the error is logged and the
   // supervisor enters its reconnect loop.
-  const outcome = await connection.ready
-  if (outcome.error !== undefined && config.failOnStartupError) {
-    throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
+  if (config.failOnStartupError) {
+    const outcome = await connection.ready
+    if (outcome.error !== undefined) {
+      throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
+    }
   }
 }

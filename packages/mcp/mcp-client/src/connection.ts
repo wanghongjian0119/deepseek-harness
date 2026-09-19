@@ -33,7 +33,7 @@ export interface ReconnectConfig {
   initialDelayMs?: number
   /** Backoff ceiling in milliseconds; also the uptime after which the attempt budget resets (default 30000). */
   maxDelayMs?: number
-  /** Consecutive failed attempts per outage before giving up for good (default 10). */
+  /** Consecutive failed attempts per outage before giving up for good (default 3). */
   maxAttempts?: number
 }
 
@@ -42,7 +42,7 @@ export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
   enabled: true,
   initialDelayMs: 500,
   maxDelayMs: 30_000,
-  maxAttempts: 10,
+  maxAttempts: 3,
 })
 
 /** Default UTF-8 byte limit for attributed server instructions. */
@@ -52,8 +52,9 @@ export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
  * Default budget for one connection attempt (ms): the transport handshake plus
  * the `tools/list` read that follows it. Kept well below the transport's
  * 60-second default request timeout, which otherwise becomes the time a single
- * unresponsive server holds plugin activation open — and with it the Host's
- * readiness signal.
+ * unresponsive server holds a `failOnStartupError` startup open — and with it
+ * the Host's readiness signal. Ordinary startups do not wait on it at all, so
+ * this value only decides which servers count as unreachable.
  */
 export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000
 
@@ -102,7 +103,7 @@ export function resolveReconnectPolicy(config: ReconnectConfig | undefined, path
   return Object.freeze({ enabled, initialDelayMs, maxDelayMs, maxAttempts })
 }
 
-/** Result from the initial connection attempt, for startup-await semantics. */
+/** Result from the initial connection attempt, for fatal-startup semantics. */
 export interface ConnectionOutcome {
   /** If the initial connection or tool sync failed, the error; otherwise absent. */
   error?: unknown
@@ -112,8 +113,9 @@ export interface ConnectionOutcome {
 export interface ConnectionHandle extends ServerContext {
   /**
    * Settles when the first connection attempt completes (success or failure).
-   * The supervisor enters its reconnect loop regardless; the caller decides
-   * whether a failed startup is fatal via `failOnStartupError`.
+   * The supervisor enters its reconnect loop regardless. Only a startup that
+   * opted into fatal semantics awaits it; the ordinary plugin activation does
+   * not, so an unreachable server cannot hold the Host's readiness signal.
    */
   ready: Promise<ConnectionOutcome>
   /**

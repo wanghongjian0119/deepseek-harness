@@ -1680,9 +1680,11 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /**
    * Timeout per connection attempt in milliseconds (default 15000): the
-   * handshake plus the `tools/list` read that follows it. Bounds how long this
-   * server holds plugin activation open, so an unresponsive server fails its
-   * attempt and enters the reconnect loop instead of stalling the Host.
+   * handshake plus the `tools/list` read that follows it. A server that
+   * exceeds it fails the attempt and is retried per `reconnect`. This bounds
+   * the Host's readiness signal only for `failOnStartupError` startups, so
+   * lowering it shortens nothing on the ordinary path — it only risks
+   * classifying a server whose startup legitimately outlasts it as dead.
    */
   startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -1711,9 +1713,11 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /**
    * Timeout per connection attempt in milliseconds (default 15000): the
-   * handshake plus the `tools/list` read that follows it. Bounds how long this
-   * server holds plugin activation open, so an unresponsive server fails its
-   * attempt and enters the reconnect loop instead of stalling the Host.
+   * handshake plus the `tools/list` read that follows it. A server that
+   * exceeds it fails the attempt and is retried per `reconnect`. This bounds
+   * the Host's readiness signal only for `failOnStartupError` startups, so
+   * lowering it shortens nothing on the ordinary path — it only risks
+   * classifying a server whose startup legitimately outlasts it as dead.
    */
   startupTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -1732,12 +1736,12 @@ export interface ReconnectConfig {
   initialDelayMs?: number
   /** Backoff ceiling in milliseconds; also the uptime after which the attempt budget resets (default 30000). */
   maxDelayMs?: number
-  /** Consecutive failed attempts per outage before giving up for good (default 10). */
+  /** Consecutive failed attempts per outage before giving up for good (default 3). */
   maxAttempts?: number
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:124`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:128`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

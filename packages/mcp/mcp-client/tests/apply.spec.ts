@@ -125,7 +125,7 @@ describe('mcp-client plugin module exports', () => {
       serverName: 'srv',
       command: 'echo',
     } as never)
-    expect(omitted.reconnect).toEqual({ enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 })
+    expect(omitted.reconnect).toEqual({ enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 3 })
 
     const partial = ConfigSchema({
       transport: 'stdio',
@@ -133,7 +133,7 @@ describe('mcp-client plugin module exports', () => {
       command: 'echo',
       reconnect: { initialDelayMs: 100 },
     } as never)
-    expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 10 })
+    expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 3 })
   })
 
   it('Config schema materializes the startup timeout and accepts an override', () => {
@@ -201,31 +201,33 @@ describe('apply (plugin lifecycle)', () => {
   it('connects, syncs tools under the namespace, and registers a notification handler', async () => {
     await apply(ctx, stdioConfig)
 
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
     expect(mockConnect).toHaveBeenCalled()
     expect(mockListTools).toHaveBeenCalled()
     expect(mockSetNotificationHandler).toHaveBeenCalled()
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(ctx.tools.get('remote')).toBeUndefined()
   })
 
   it('bounds the attempt handshake and its tool-list read with the startup timeout', async () => {
     await apply(ctx, { ...stdioConfig, startupTimeoutMs: 1_234 })
 
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
     expect(mockConnect).toHaveBeenCalledWith(expect.anything(), { timeout: 1_234 })
     expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh', timeout: 1_234 })
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
   })
 
   it('falls back to the default startup timeout when the config omits it', async () => {
     // stdioConfig is programmatic: no schema materialized the default for it.
     await apply(ctx, stdioConfig)
 
+    await vi.waitFor(() => { expect(mockListTools).toHaveBeenCalled() })
     expect(mockConnect).toHaveBeenCalledWith(expect.anything(), { timeout: 15_000 })
     expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh', timeout: 15_000 })
   })
 
   it('leaves the request timeout to the transport default on a list_changed re-sync', async () => {
     await apply(ctx, stdioConfig)
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
     mockListTools.mockClear()
 
     const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => void
@@ -235,7 +237,7 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockListTools).toHaveBeenCalledWith(undefined, { cacheMode: 'refresh' })
   })
 
-  it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
+  it('activates while the initial connection is still pending and publishes its tools when it lands', async () => {
     const connection: PromiseWithResolvers<void> = Promise.withResolvers()
     mockConnect.mockImplementation(async () => {
       await connection.promise
@@ -244,19 +246,22 @@ describe('apply (plugin lifecycle)', () => {
     let activated = false
     const activation = Promise.resolve(fiber).then(() => { activated = true })
 
-    await vi.waitFor(() => { expect(mockConnect).toHaveBeenCalled() })
-    expect(activated).toBe(false)
+    // The fiber settles with the connection still unresolved: an unreachable
+    // server must not hold Cordis consumers, or the Host's readiness signal,
+    // behind its attempt.
+    await activation
+    expect(activated).toBe(true)
+    expect(mockConnect).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
 
     connection.resolve()
-    await activation
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
     await fiber.dispose()
   })
 
   it('rejects a duplicate serverName at load and leaves the first instance intact', async () => {
     await apply(ctx, stdioConfig)
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
     await expect(apply(ctx, stdioConfig)).rejects.toThrow(/serverName "srv" is already in use/)
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
@@ -321,15 +326,17 @@ describe('apply (plugin lifecycle)', () => {
     const second = apply(other, stdioConfig)
     await Promise.all([first, second])
 
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
-    expect(other.tools.get('mcp__srv__remote')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+    await vi.waitFor(() => { expect(other.tools.get('mcp__srv__remote')).toBeDefined() })
   })
 
   it('logs error and registers no tools when connect fails; dispose closes the client', async () => {
+    const reported = vi.spyOn(ctx.logger, 'warn')
     mockConnect.mockRejectedValue(new Error('connection refused'))
 
     await apply(ctx, stdioConfig)
 
+    await vi.waitFor(() => { expect(reported).toHaveBeenCalledWith(expect.stringContaining('connection attempt failed')) })
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
 
@@ -407,8 +414,7 @@ describe('apply (plugin lifecycle)', () => {
 
   it('re-syncs tools on ToolListChanged notification', async () => {
     await apply(ctx, stdioConfig)
-
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
     mockListTools.mockResolvedValue({
       tools: [{ name: 'updated', inputSchema: { type: 'object' } }],
@@ -423,7 +429,7 @@ describe('apply (plugin lifecycle)', () => {
 
   it('keeps the previous generation when a re-sync fails', async () => {
     await apply(ctx, stdioConfig)
-    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
     const reported = vi.spyOn(ctx.logger, 'error')
     mockListTools.mockRejectedValue(new Error('flaky server'))
@@ -439,6 +445,7 @@ describe('apply (plugin lifecycle)', () => {
     // registry must survive to observe the unregistration.
     const fiber = ctx.plugin({ name: 'mcp-client', inject: ['tools'], apply }, stdioConfig)
     await fiber
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
     // Advance to a second generation first.
     mockListTools.mockResolvedValue({
@@ -484,8 +491,8 @@ describe('apply (plugin lifecycle)', () => {
 
     await apply(ctx, httpConfig)
 
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__web__remote')).toBeDefined() })
     expect(mockConnect).toHaveBeenCalled()
-    expect(ctx.tools.get('mcp__web__remote')).toBeDefined()
   })
 })
 

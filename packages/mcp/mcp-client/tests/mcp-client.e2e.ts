@@ -77,6 +77,16 @@ function sleep(ms: number): Promise<void> {
   return gate.promise
 }
 
+/**
+ * Activation does not wait for the initial connection, so a suite that needs
+ * the discovered tools gates on one of them instead of assuming the `apply()`
+ * promise published them. One `syncTools` call registers the whole generation,
+ * so the first visible name implies the rest of that list is present too.
+ */
+async function waitForTool(ctx: Context, name: string, timeout = 30_000): Promise<void> {
+  await vi.waitFor(() => { expect(ctx.tools.get(name)).toBeDefined() }, { timeout, interval: 100 })
+}
+
 /** Narrow a result content block to its text, failing the test on any other shape. */
 function textOf(block: unknown): string {
   if (block && typeof block === 'object' && 'text' in block && typeof block.text === 'string') {
@@ -111,6 +121,7 @@ describe('fixture server — controlled scenarios', () => {
     home = await mkdtemp(join(tmpdir(), 'mcp-image-e2e-'))
     ctx = await mountImageRegistry(home)
     await apply(ctx, fixtureConfig)
+    await waitForTool(ctx, 'mcp__fixture__add')
   }, 30_000)
 
   afterAll(async () => {
@@ -227,6 +238,7 @@ describe('fixture server — disposal', () => {
       toolCallTimeoutMs: 15_000,
       failOnStartupError: false,
     })
+    await waitForTool(ctx, 'mcp__fixture__add')
 
     // Tools are registered before dispose.
     expect(ctx.tools.get('mcp__fixture__add')).toBeDefined()
@@ -256,6 +268,7 @@ describe('fixture server — crash recovery', () => {
   it('auto-reconnects after a stdio crash and serves tool calls again', async () => {
     const ctx = await mountRegistry()
     await apply(ctx, crashConfig('crashy', { initialDelayMs: 50, maxDelayMs: 500, maxAttempts: 40 }))
+    await waitForTool(ctx, 'mcp__crashy__add')
 
     const before = await ctx.tools.execute({
       signal: testToolSignal,
@@ -295,8 +308,8 @@ describe('fixture server — crash recovery', () => {
       { name: 'mcp-client', inject: ['tools'], apply },
       crashConfig('ephemeral', { initialDelayMs: 8_000, maxDelayMs: 8_000, maxAttempts: 5 }),
     )
-    // Cordis awaits async apply() as startup work; wait for it.
-    await vi.waitFor(() => { expect(ctx.tools.get('mcp__ephemeral__add')).toBeDefined() }, { timeout: 20_000 })
+    // Activation does not wait for the connection; gate on the discovered tool.
+    await waitForTool(ctx, 'mcp__ephemeral__add', 20_000)
 
     const crash = await ctx.tools.execute({
       signal: testToolSignal,
@@ -338,6 +351,7 @@ describe('server-everything — official test server', () => {
   beforeAll(async () => {
     ctx = await mountRegistry()
     await apply(ctx, config)
+    await waitForTool(ctx, 'mcp__everything__echo', 50_000)
   }, 60_000)
 
   afterAll(async () => {
@@ -404,6 +418,7 @@ describe('server-filesystem — real filesystem operations', () => {
       failOnStartupError: false,
     }
     await apply(ctx, config)
+    await waitForTool(ctx, 'mcp__filesystem__read_file', 50_000)
   }, 60_000)
 
   afterAll(async () => {
@@ -514,6 +529,7 @@ describe('streamable-http — in-process MCP server', () => {
       failOnStartupError: false,
     }
     await apply(ctx, config)
+    await waitForTool(ctx, 'mcp__web__ping')
   }, 30_000)
 
   afterAll(async () => {

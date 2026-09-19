@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-15-mcp-connection-attempt-budget.md
-2026-09-15-mcp-connection-attempt-budget.md: a4ea34f32e53a45e58d6a06c52dc017c94997ef8
-2026-09-15-mcp-connection-attempt-budget.zh.md: 93a7cc61bd7a5204bccb2c31e1baf6ffcf4c0714
+2026-09-15-mcp-connection-attempt-budget.md: cc12717f333f6e7b17f30add124340bd98da1149
+2026-09-15-mcp-connection-attempt-budget.zh.md: d964454f12a898b468677bf58dd7e1085ab0cda7
