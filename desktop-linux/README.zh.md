@@ -74,20 +74,22 @@ Linux 备注：
 本仓库不发布后端安装包，因此应用跟踪的是所配置源码仓库的 **master commit SHA**，而不是版本号。每次启动、以及运行期间每 6 小时，壳会把载荷记录的 `sourceRef` 与该分支头部对比；发现新代码时，对每个新的上游 SHA **只自动打开一次**应用内**更新中心**（记录在 `~/.dsh/desktop/offered-update.json`；不使用系统通知）。窗口顶部常显菜单包含标准的 **文件 / 编辑 / 视图** 三项——退出、剪贴板、重新加载、缩放、全屏——以及 **更新 → 打开更新中心**（`CmdOrCtrl+U`），可随时打开同一窗口。在窗口内可检查、下载、安装并查看进度；确认后任务会：
 
 1. 取得目标源码——当 `DSH_DESKTOP_UPDATE_REPO_DIR` 指定的本地 git 仓库其 origin 与被跟踪仓库一致时优先用它（`git fetch` 后做 detach 的 `git worktree add`，并先 prune 以便中断的任务能恢复），否则下载源码包，且优先尝试 `codeload.github.com`，再退回 `github.com/<repo>/archive/<sha>.tar.gz` 这条重定向，
-2. 用内置 Node 引导声明的 pnpm 版本（store 隔离在更新工作目录，不使用用户全局 pnpm store），
-3. 用所选的 npm 镜像安装依赖并构建检出，
+2. 用内置 Node 引导声明的 pnpm 版本（store 与元数据缓存持久保存在 `~/.dsh/desktop` 下，不使用用户全局 pnpm store），
+3. 先落到一个能应答的镜像——优先所选镜像，它不通时换用其他内置镜像——再安装依赖并构建检出，复用历次更新已下载的内容，
 4. 组装新载荷（复用当前 Node 可执行文件）、启动冒烟通过后原子切换 `~/.dsh/desktop/payloads/current` 指针，
 5. 用新版本重启后端。
 
-下载走 Electron 的 `net.fetch`，因而与应用自身窗口一样解析系统代理；每次尝试有 30 分钟超时与三次重试，因为大源码包在慢链路上很慢但仍在推进。旧载荷目录保留到下一次更新成功为止，构建失败不影响当前版本。Electron 壳本身不更新——只更新内置的后端代码。
+下载与更新检查走 Electron 的 `net.fetch`，因而与应用自身窗口一样解析系统代理；每次尝试有 30 分钟超时与三次重试，因为大源码包在慢链路上很慢但仍在推进。子进程走同一条路：代理按各端点经 Chromium 网络栈解析后交给 pnpm、npm 与 git——它们本来只读环境变量，而在图形界面启动、代理配在桌面网络设置里时，这些变量是空的。已配置但不再接受连接的代理会被识别出来，任务转为直连，因此停掉的 VPN 或代理客户端不会让更新失败。旧载荷目录保留到下一次更新成功为止，构建失败不影响当前版本。Electron 壳本身不更新——只更新内置的后端代码。
+
+更新检查在 `DSH_DESKTOP_UPDATE_TOKEN`、`GH_TOKEN` 或 `GITHUB_TOKEN` 提供令牌时带上它，否则使用 `gh auth token` 报告的凭据。令牌只发给 API 主机，并把 GitHub 的限额从每个 IP 每小时 60 次（同一代理出口地址后的所有用户共享）提高到 5000 次；没有令牌时检查仍以匿名方式执行。
 
 要求与注意事项：
 
 - **联网**（更新时），外加几分钟 CPU 与数 GB 临时磁盘（构建树，成功后清理）。
 - **信任**：更新会从配置的仓库下载并构建代码、执行其 postinstall 脚本——等同于对该仓库执行 `git pull && pnpm install`。默认是官方 `deepseek-ai/deepseek-harness` 的 master 分支，可用 `DSH_DESKTOP_UPDATE_REPO` 覆盖。
-- 安装/构建子进程使用更新工作目录下的 pnpm store，而不是 `~/.local/share/pnpm`。因此 root 拥有的全局 store（来自 `sudo pnpm`）不会以 EACCES 让任务失败。
+- 所有会解析包的子进程——安装、构建、载荷 deploy——共用 `~/.dsh/desktop/pnpm-store` 这一个持久 store 与 `~/.dsh/desktop/pnpm-cache` 这一个元数据缓存，而不是 `~/.local/share/pnpm`。pnpm 11 只接受 CLI 参数形式的这两个路径，因此更新任务把它们（连同镜像、`--prefer-offline` 与取数调优参数）交给每个此类命令；不带它时 deploy 会对被清空的更新工作目录下那两个新目录解析，并重新下载整份闭包。因此 root 拥有的全局 store（来自 `sudo pnpm`）不会以 EACCES 让任务失败。
 - 更新是**在更新中心内确认而非静默**：只有点击 **下载并安装** 后才会开始数分钟的重新构建。
-- 更新中心可在安装前选择 **npm 镜像**（npmmirror、腾讯云、华为云、官方）；下载与安装从一开始就会把详情写入日志区。
+- 更新中心可在安装前选择 **npm 镜像**（npmmirror、腾讯云、华为云、官方）；任务会先对候选做健康检查，所选镜像不应答时改用其他内置镜像——日志区会写明实际使用的镜像，你的选择保持不变。下载与安装从一开始就会把详情写入日志区。
 
 ## Deploy root
 
@@ -111,7 +113,7 @@ pnpm exec tsx desktop-linux/scripts/generate-deploy-root.ts
 pnpm exec vitest run desktop-linux/tests
 ```
 
-覆盖载荷解析、就绪行解析、服务启动器的 spawn 参数、更新任务的源码与下载行为、品牌改写，以及更新提示的记录。`src/updater/update-job.ts` 刻意只用按需 import 引入 `electron`，因此这些用例可以在 Electron 运行时之外运行。
+覆盖载荷解析、就绪行解析、服务启动器的 spawn 参数、更新任务的源码与下载行为、镜像预检与子进程环境（含系统代理）、品牌改写，以及更新提示的记录。`src/updater/update-job.ts` 刻意只用按需 import 引入 `electron`，因此这些用例可以在 Electron 运行时之外运行。
 
 ## 已知限制与后续工作
 

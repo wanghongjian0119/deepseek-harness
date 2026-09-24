@@ -33,6 +33,8 @@ import { LOADING_HTML, splashStatusScript } from './splash.ts'
 import { shouldOpenExternally } from './external-url.ts'
 import { UpdateCenter } from './updater/update-center.ts'
 import { checkForUpdate } from './updater/update-check.ts'
+import { chromiumFetch } from './updater/electron-net.ts'
+import { resolveGitHubToken } from './updater/github-token.ts'
 import { readOfferedUpdateSha, writeOfferedUpdateSha } from './updater/offered-update.ts'
 
 /** Launcher flag that switches payload resolution to development mode. */
@@ -228,7 +230,13 @@ async function scheduleUpdateCheck(): Promise<void> {
   try {
     const home = dshHome()
     if (offeredUpdateSha === undefined) offeredUpdateSha = readOfferedUpdateSha(home)
-    const result = await checkForUpdate({ currentSha: activePayload.manifest.sourceRef })
+    const token = await resolveGitHubToken()
+    const result = await checkForUpdate({
+      currentSha: activePayload.manifest.sourceRef,
+      // Chromium's stack follows the system proxy; Node's global fetch does not.
+      fetchImpl: await chromiumFetch(),
+      ...(token === undefined ? {} : { token }),
+    })
     if (result.available && result.latestSha !== undefined && result.latestSha !== offeredUpdateSha) {
       offeredUpdateSha = result.latestSha
       writeOfferedUpdateSha(result.latestSha, home)

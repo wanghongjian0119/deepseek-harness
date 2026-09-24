@@ -13,10 +13,13 @@
  *
  * The build tree is kept under the work directory and removed after a
  * successful swap; on failure it is left for inspection and the error names
- * its path. pnpm runs in a closed environment with a store under the work
- * directory so a root-owned global store (a common `sudo pnpm` leftover)
- * cannot fail the install, and the last subprocess lines are attached to
- * the thrown error (the desktop launcher discards Electron stdout).
+ * its path. pnpm runs in a closed environment whose store and metadata cache
+ * live under `$DSH_HOME/desktop`, so a root-owned global store (a common
+ * `sudo pnpm` leftover) cannot fail the install and a repeat update reuses
+ * what the previous one downloaded. Subprocesses reach the network over the
+ * same route as the downloads (see {@link resolveUpdateProxy}), and the last
+ * subprocess lines are attached to the thrown error (the desktop launcher
+ * discards Electron stdout).
  * @module @deepseek-ai/dsh-desktop-linux/update-job
  */
 
@@ -27,6 +30,7 @@ import { dirname, join } from 'node:path'
 import { assemblePayload } from '../payload-builder.ts'
 import { payloadsDir, switchCurrentPointer } from '../payload.ts'
 import { ensureDesktopDeployRoot } from '../ensure-deploy-root.ts'
+import { isProxyReachable, resolveSystemProxy, type ProxyEnv } from './electron-net.ts'
 import { resolveNpmRegistry } from './npm-mirrors.ts'
 
 /**
@@ -122,6 +126,7 @@ const UPDATE_ENV_KEEP = [
  * @param registryUrl - npm registry for pnpm install (and the pnpm tarball fetch uses the same URL in the job).
  * @param storeDir - pnpm content-addressable store; defaults to `workDir/pnpm-store`.
  *   The updater passes a path outside `workDir` so `rm(workDir)` does not wipe the cache.
+ * @param proxy - system proxy resolved by {@link resolveUpdateProxy}, when one is live.
  * @returns a closed env for every update subprocess.
  */
 export function buildUpdateChildEnv(
@@ -130,6 +135,7 @@ export function buildUpdateChildEnv(
   nodeBinary?: string,
   registryUrl?: string,
   storeDir?: string,
+  proxy?: ProxyEnv,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     CI: 'true',
@@ -153,6 +159,16 @@ export function buildUpdateChildEnv(
   // Re-apply after inheritance so a parent `npm_config_registry` cannot win.
   if (registryUrl !== undefined && registryUrl !== '') {
     env.npm_config_registry = registryUrl
+  }
+  // Same ordering for the proxy: the route downloads already take outranks an
+  // inherited variable, which can outlive the client that served it. Both
+  // spellings, because pnpm reads the lowercase pair and git also consults the
+  // uppercase one.
+  if (proxy !== undefined) {
+    env.http_proxy = proxy.http_proxy
+    env.https_proxy = proxy.https_proxy
+    env.HTTP_PROXY = proxy.http_proxy
+    env.HTTPS_PROXY = proxy.https_proxy
   }
   const path = env.PATH ?? HOST_PATH_PREFIX
   const withHost = path.split(':').includes('/usr/bin') ? path : `${HOST_PATH_PREFIX}:${path}`
@@ -225,21 +241,66 @@ export async function writeCheckoutNpmrc(sourceRoot: string, registryUrl: string
 }
 
 /**
- * Build the pnpm argv fragment that forces a registry and a persistent store
- * on every install.
+ * Build the pnpm argv fragment that forces a registry, a persistent store, and
+ * a persistent metadata cache on every command that resolves packages.
  *
  * pnpm 11 reads these only as plain CLI flags — `.npmrc` lines and
  * `npm_config_*` env are ignored, without an explicit store dir pnpm derives
  * one from `PNPM_HOME` (under the wiped work directory), and the
  * `--config.<key>=<value>` spelling feeds numeric options to the fetch queue
- * as strings (PQueue rejects them). The slow-network tuning and the
- * persistent store must ride along as flags.
+ * as strings (PQueue rejects them). The slow-network tuning and both
+ * persistent directories must ride along as flags.
+ *
+ * `--prefer-offline` is what turns a repeat update from a network wait into a
+ * local one: resolution answers from the metadata cache and only fetches what
+ * is genuinely missing. When something is missing it falls back to the
+ * registry, so a lockfile for a newer commit still resolves.
  * @param registryUrl - npm registry base URL.
  * @param storeDir - content-addressable store kept outside the work directory.
- * @returns the argv fragment appended to every pnpm install.
+ * @param cacheDir - metadata cache kept outside the work directory.
+ * @returns the argv fragment appended to every pnpm install and deploy.
  */
-export function pnpmRegistryArgs(registryUrl: string, storeDir: string): string[] {
-  return ['--registry', registryUrl, `--store-dir=${storeDir}`, '--fetch-timeout=1800000', '--network-concurrency=2']
+export function pnpmRegistryArgs(registryUrl: string, storeDir: string, cacheDir: string): string[] {
+  return [
+    '--registry', registryUrl,
+    `--store-dir=${storeDir}`,
+    `--config.cache-dir=${cacheDir}`,
+    '--prefer-offline',
+    '--fetch-timeout=1800000',
+    '--network-concurrency=2',
+  ]
+}
+
+/**
+ * Resolve the proxy update subprocesses should use, if any.
+ *
+ * Downloads run on Chromium's stack, which follows the host's proxy
+ * configuration; pnpm, npm, and git read only the environment, which a GUI
+ * launch leaves empty when the proxy lives in the desktop's network settings.
+ * The two halves of one update then take different routes — the source archive
+ * arriving through the proxy while every registry request goes direct — which
+ * is how a working proxy still ends in fetch timeouts. A configured endpoint
+ * that no longer accepts connections is not a route either, so a dead proxy
+ * leaves the subprocesses direct rather than failing every request.
+ * @param urls - endpoints the job will reach, most authoritative first.
+ * @param onLog - detail sink naming the route the job took.
+ * @returns the proxy to write into the child environment, or undefined to go direct.
+ */
+export async function resolveUpdateProxy(
+  urls: readonly string[],
+  onLog: (message: string) => void,
+): Promise<ProxyEnv | undefined> {
+  const resolved = await resolveSystemProxy(urls)
+  if (resolved === undefined) {
+    onLog('update: 系统未配置代理，更新子进程直连')
+    return undefined
+  }
+  if (!(await isProxyReachable(resolved.http_proxy))) {
+    onLog(`update: 系统代理 ${resolved.http_proxy} 未监听，更新子进程直连`)
+    return undefined
+  }
+  onLog(`update: 更新子进程走系统代理 ${resolved.http_proxy}（按 ${resolved.forUrl} 解析）`)
+  return resolved
 }
 
 /**
@@ -620,10 +681,12 @@ export async function runSourceUpdate(options: RunSourceUpdateOptions): Promise<
     throw new Error(`update: invalid target ref ${JSON.stringify(targetSha)}; expected a 40-hex git SHA`)
   }
 
-  // Persist the content store outside update-work so each rm(workDir) does not
-  // force a multi-GB re-download on the next update. Migrate a leftover store
-  // from a prior update-work before wiping that directory.
+  // Persist the content store and the metadata cache outside update-work so
+  // each rm(workDir) does not force a multi-GB re-download and a full metadata
+  // re-resolution on the next update. Migrate a leftover store from a prior
+  // update-work before wiping that directory.
   const storeDir = join(home, 'desktop', 'pnpm-store')
+  const cacheDir = join(home, 'desktop', 'pnpm-cache')
   const legacyStore = join(workDir, 'pnpm-store')
   if (existsSync(legacyStore) && !existsSync(storeDir)) {
     await mkdir(join(home, 'desktop'), { recursive: true })
@@ -632,9 +695,15 @@ export async function runSourceUpdate(options: RunSourceUpdateOptions): Promise<
   await rm(workDir, { recursive: true, force: true })
   await mkdir(workDir, { recursive: true })
   await mkdir(storeDir, { recursive: true })
-  const env = buildUpdateChildEnv(workDir, process.env, currentNodeBinary, registryUrl, storeDir)
+  await mkdir(cacheDir, { recursive: true })
+  const proxy = await resolveUpdateProxy(
+    [registryUrl, ...sourceArchiveUrls(repo, targetSha, githubBase)],
+    log,
+  )
+  const env = buildUpdateChildEnv(workDir, process.env, currentNodeBinary, registryUrl, storeDir, proxy)
   log(`update: npm registry ${registryUrl}`)
   log(`update: pnpm store ${storeDir}`)
+  log(`update: pnpm metadata cache ${cacheDir}`)
   try {
     const obtained = await obtainSourceCheckout({
       repo,
@@ -673,7 +742,7 @@ export async function runSourceUpdate(options: RunSourceUpdateOptions): Promise<
     // GitHub source archives have no `.git`; official `pnpm run build` needs a
     // commit via DSH_CLIENT_COMMIT_HASH (see upstream client-build-environment).
     env.DSH_CLIENT_COMMIT_HASH = targetSha
-    const registryArgs = pnpmRegistryArgs(registryUrl, storeDir)
+    const registryArgs = pnpmRegistryArgs(registryUrl, storeDir, cacheDir)
     try {
       await run(
         'install dependencies',
@@ -716,6 +785,7 @@ export async function runSourceUpdate(options: RunSourceUpdateOptions): Promise<
       outDir: join(payloadsDir(home), targetSha),
       stageDir: join(workDir, 'stage'),
       pnpmArgs: [currentNodeBinary, pnpmCjs],
+      pnpmFlags: registryArgs,
       sourceRef: targetSha,
       nodeBinarySource: currentNodeBinary,
       env,

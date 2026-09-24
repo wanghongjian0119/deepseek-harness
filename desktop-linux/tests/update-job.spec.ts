@@ -103,6 +103,30 @@ describe('buildUpdateChildEnv', () => {
     expect(env.npm_config_fetch_timeout).toBe('1800000')
     expect(env.npm_config_network_concurrency).toBe('2')
   })
+
+  it('routes subprocesses through the resolved proxy under both spellings', () => {
+    const env = buildUpdateChildEnv(
+      '/tmp/update-work',
+      { PATH: '/usr/bin', https_proxy: 'http://stale.example:8080' },
+      undefined,
+      undefined,
+      undefined,
+      { http_proxy: 'http://127.0.0.1:7890', https_proxy: 'http://127.0.0.1:7890' },
+    )
+    expect(env.http_proxy).toBe('http://127.0.0.1:7890')
+    expect(env.HTTP_PROXY).toBe('http://127.0.0.1:7890')
+    expect(env.https_proxy).toBe('http://127.0.0.1:7890')
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7890')
+  })
+
+  it('keeps inherited proxy variables when no system proxy resolved', () => {
+    const env = buildUpdateChildEnv('/tmp/update-work', {
+      PATH: '/usr/bin',
+      https_proxy: 'http://127.0.0.1:7890',
+    })
+    expect(env.https_proxy).toBe('http://127.0.0.1:7890')
+    expect(env.HTTP_PROXY).toBeUndefined()
+  })
 })
 
 describe('ensurePackageManagerShims / prependPathEntry', () => {
@@ -145,11 +169,17 @@ describe('formatByteSize', () => {
 })
 
 describe('pnpmRegistryArgs', () => {
-  it('forces registry, persistent store, and slow-network tuning via CLI flags', () => {
-    expect(pnpmRegistryArgs('https://registry.npmmirror.com', '/home/user/.dsh/desktop/pnpm-store')).toEqual([
+  it('forces registry, persistent store, persistent cache, and slow-network tuning via CLI flags', () => {
+    expect(pnpmRegistryArgs(
+      'https://registry.npmmirror.com',
+      '/home/user/.dsh/desktop/pnpm-store',
+      '/home/user/.dsh/desktop/pnpm-cache',
+    )).toEqual([
       '--registry',
       'https://registry.npmmirror.com',
       '--store-dir=/home/user/.dsh/desktop/pnpm-store',
+      '--config.cache-dir=/home/user/.dsh/desktop/pnpm-cache',
+      '--prefer-offline',
       '--fetch-timeout=1800000',
       '--network-concurrency=2',
     ])

@@ -15,8 +15,35 @@ import { fileURLToPath } from 'node:url'
 import type { PayloadManifest } from '../payload.ts'
 import { dshHome } from '../payload.ts'
 import { checkForUpdate, updateRepo } from './update-check.ts'
-import { DEFAULT_NPM_MIRROR_ID, NPM_MIRRORS, resolveNpmRegistry, type NpmMirror } from './npm-mirrors.ts'
+import { chromiumFetch } from './electron-net.ts'
+import { resolveGitHubToken } from './github-token.ts'
+import {
+  DEFAULT_NPM_MIRROR_ID,
+  NPM_MIRRORS,
+  registryPingUrl,
+  selectReachableRegistry,
+  type NpmMirror,
+} from './npm-mirrors.ts'
 import { runSourceUpdate, type UpdateProgress } from './update-job.ts'
+
+/** How long one registry health probe has to answer before the next candidate runs. */
+const REGISTRY_PROBE_TIMEOUT_MS = 6_000
+
+/**
+ * Probe one registry over Chromium's network stack.
+ *
+ * Any HTTP reply — 200, 404, 403 — proves the host answers on this host's
+ * route; only a network failure throws. The proxy the app's own window uses is
+ * therefore applied to the probe too, so a mirror that is only reachable
+ * through a configured proxy is not misread as down.
+ * @param registryUrl - registry base URL to probe.
+ * @returns whether the registry answered.
+ */
+async function probeRegistry(registryUrl: string): Promise<boolean> {
+  const request = await chromiumFetch()
+  await request(registryPingUrl(registryUrl), { signal: AbortSignal.timeout(REGISTRY_PROBE_TIMEOUT_MS) })
+  return true
+}
 
 /** Phases shown by the Update Center UI. */
 export type UpdateCenterPhase =
@@ -203,7 +230,14 @@ export class UpdateCenter {
     }
     this.pushState()
     try {
-      const result = await checkForUpdate(currentSha === undefined ? {} : { currentSha })
+      // Chromium's stack resolves the system proxy; Node's global fetch does
+      // not, so a check behind a proxy would time out against a reachable GitHub.
+      const token = await resolveGitHubToken()
+      const result = await checkForUpdate({
+        ...(currentSha === undefined ? {} : { currentSha }),
+        fetchImpl: await chromiumFetch(),
+        ...(token === undefined ? {} : { token }),
+      })
       const available = result.available
       this.state = {
         ...this.state,
@@ -249,7 +283,6 @@ export class UpdateCenter {
       return this.snapshot()
     }
     const registryId = options.registryId ?? this.state.registryId
-    const registryUrl = resolveNpmRegistry(registryId)
     this.state = {
       ...this.state,
       registryId,
@@ -259,8 +292,12 @@ export class UpdateCenter {
       messageKind: 'busy',
     }
     this.pushState()
-    this.emit({ type: 'log', line: `使用 npm 镜像：${registryUrl}` })
     try {
+      // Probe before the multi-minute job: a mirror that does not answer costs
+      // a few seconds here and a failed update later.
+      const logLine = (line: string): void => { this.emit({ type: 'log', line }) }
+      const registryUrl = await selectReachableRegistry(registryId, probeRegistry, logLine)
+      this.emit({ type: 'log', line: `使用 npm 镜像：${registryUrl}` })
       await runSourceUpdate({
         repo: updateRepo(),
         targetSha,

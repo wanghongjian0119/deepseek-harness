@@ -23,6 +23,8 @@ export interface CheckForUpdateOptions {
   apiBase?: string
   /** Test hook for the HTTP fetch. */
   fetchImpl?: typeof fetch
+  /** Token for the API request; see `github-token.ts` for how callers resolve one. */
+  token?: string
 }
 
 /** The result of an update check. */
@@ -42,7 +44,11 @@ export function updateRepo(env: NodeJS.ProcessEnv = process.env): string {
 
 /**
  * Query the upstream master SHA and compare it with the running payload's.
- * @param options - repo, current ref, and HTTP hooks.
+ *
+ * Unauthenticated requests share GitHub's 60-per-hour limit per IP, which a
+ * shared proxy exit address spends for everyone behind it; a token lifts that
+ * to 5000 and is sent only to this API host.
+ * @param options - repo, current ref, token, and HTTP hooks.
  * @returns the comparison result.
  * @throws on a failed API request.
  */
@@ -51,7 +57,10 @@ export async function checkForUpdate(options: CheckForUpdateOptions = {}): Promi
   const fetchImpl = options.fetchImpl ?? fetch
   const base = options.apiBase ?? 'https://api.github.com'
   const response = await fetchImpl(`${base}/repos/${repo}/commits/master`, {
-    headers: { 'User-Agent': 'dsh-desktop' },
+    headers: {
+      'User-Agent': 'dsh-desktop',
+      ...(options.token === undefined ? {} : { Authorization: `Bearer ${options.token}` }),
+    },
   })
   if (!response.ok) {
     throw new Error(`update check failed for ${repo} (HTTP ${response.status})`)

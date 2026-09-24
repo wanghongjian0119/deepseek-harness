@@ -35,6 +35,15 @@ describe('checkForUpdate', () => {
     )
   })
 
+  it('authenticates the request when a token is available', async () => {
+    const fetchImpl = fakeFetch(SHA)
+    await checkForUpdate({ repo: 'owner/repo', currentSha: SHA, fetchImpl, apiBase: 'https://api.example', token: 'secret' })
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.example/repos/owner/repo/commits/master',
+      expect.objectContaining({ headers: { 'User-Agent': 'dsh-desktop', Authorization: 'Bearer secret' } }),
+    )
+  })
+
   it('defaults to the official upstream repository', () => {
     expect(DEFAULT_UPDATE_REPO).toBe('deepseek-ai/deepseek-harness')
     expect(updateRepo({})).toBe(DEFAULT_UPDATE_REPO)

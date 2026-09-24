@@ -62,6 +62,18 @@ export interface AssemblePayloadOptions {
    * closure deploy and the workspace restore run through it.
    */
   pnpmArgs: readonly string[]
+  /**
+   * Run-level pnpm flags for the commands that resolve packages — the closure
+   * deploy and the workspace restore install — inserted after the invocation
+   * prefix. Omitted by the build-time script, which runs on the developer's own
+   * registry and store.
+   *
+   * The in-app updater passes `pnpmRegistryArgs(registryUrl, storeDir, cacheDir)` here.
+   * Without them the deploy resolves against the store pnpm derives from
+   * `PNPM_HOME` — under the update scratch directory, wiped and therefore empty
+   * on every run — and re-fetches the whole graph from the registry.
+   */
+  pnpmFlags?: readonly string[]
   /** Upstream ref recorded in the manifest; the update check compares it. */
   sourceRef?: string
   /**
@@ -532,6 +544,35 @@ async function resizeBrandRow(payload: string): Promise<void> {
 }
 
 /**
+ * pnpm argv for the closure deploy: the invocation prefix, the run-level flags
+ * carrying registry and store configuration, the deploy flags, and the target
+ * directory.
+ *
+ * A production deploy excludes devDependencies, so a patch declared for a
+ * devDependency has nothing to apply to and pnpm 11 fails the deploy outright
+ * with ERR_PNPM_UNUSED_PATCH. Upstream declares one for @electron/osx-sign,
+ * which only electron-builder reaches. Allowing unused patches downgrades that
+ * to a warning; a patch whose package is in the closure still applies.
+ * @param pnpmArgs - the invocation prefix whose first element is the executable.
+ * @param pnpmFlags - run-level flags; see {@link AssemblePayloadOptions.pnpmFlags}.
+ * @param target - directory the hoisted closure is deployed into.
+ * @returns argv for pnpm, executable excluded.
+ */
+export function closureDeployArgs(pnpmArgs: readonly string[], pnpmFlags: readonly string[], target: string): string[] {
+  return [
+    ...pnpmArgs.slice(1),
+    ...pnpmFlags,
+    '--filter', DEPLOY_ROOT_PACKAGE,
+    'deploy', '--legacy', '--prod',
+    '--config.node-linker=hoisted',
+    '--config.auto-install-peers=false',
+    '--config.link-workspace-packages=true',
+    '--config.allowUnusedPatches=true',
+    target,
+  ]
+}
+
+/**
  * Assemble a payload from a built checkout into `outDir`. The last step is
  * the boot smoke: a payload that does not serve the GUI manifest fails the
  * whole build, so a caller can activate the output without re-verifying.
@@ -539,7 +580,7 @@ async function resizeBrandRow(payload: string): Promise<void> {
  * @throws on any step failure; the output directory is left for inspection.
  */
 export async function assemblePayload(options: AssemblePayloadOptions): Promise<void> {
-  const { sourceRoot, outDir, stageDir, pnpmArgs, sourceRef, nodeBinarySource } = options
+  const { sourceRoot, outDir, stageDir, pnpmArgs, pnpmFlags = [], sourceRef, nodeBinarySource } = options
   log = options.onLog ?? console.log
   childEnv = options.env ?? { ...process.env, CI: 'true' }
   verifyBuiltArtifacts(sourceRoot)
@@ -559,27 +600,14 @@ export async function assemblePayload(options: AssemblePayloadOptions): Promise<
   await mkdir(stageDir, { recursive: true })
 
   const runtimeDir = join(outDir, 'runtime')
-  // A production deploy excludes devDependencies, so a patch declared for a
-  // devDependency has nothing to apply to and pnpm 11 fails the deploy outright
-  // with ERR_PNPM_UNUSED_PATCH. Upstream declares one for @electron/osx-sign,
-  // which only electron-builder reaches. Allowing unused patches downgrades that
-  // to a warning; a patch whose package is in the closure still applies.
-  await run('deploy closure', pnpmArgs[0] ?? 'pnpm', [
-    ...pnpmArgs.slice(1),
-    '--filter', DEPLOY_ROOT_PACKAGE,
-    'deploy', '--legacy', '--prod',
-    '--config.node-linker=hoisted',
-    '--config.auto-install-peers=false',
-    '--config.link-workspace-packages=true',
-    '--config.allowUnusedPatches=true',
-    runtimeDir,
-  ], sourceRoot)
+  await run('deploy closure', pnpmArgs[0] ?? 'pnpm', closureDeployArgs(pnpmArgs, pnpmFlags, runtimeDir), sourceRoot)
   // pnpm's legacy deploy re-resolves the workspace and prunes package-level
   // devDependency links from the source install; restore them so the checkout
   // stays healthy after a payload build. Not frozen: the deploy-root manifest
   // may have changed since the committed lockfile.
   await run('restore workspace install', pnpmArgs[0] ?? 'pnpm', [
     ...pnpmArgs.slice(1),
+    ...pnpmFlags,
     'install', '--no-frozen-lockfile',
   ], sourceRoot)
   await restoreLegacyHoists(sourceRoot, runtimeDir)

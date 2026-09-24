@@ -74,20 +74,22 @@ Linux notes:
 The repository publishes no backend installers, so the app tracks the **master commit SHA** of a configured source repository instead of a version number. On launch, and every six hours while running, the shell compares the payload's recorded `sourceRef` with that branch's head; when newer code exists it opens the in-app **Update Center** once per new upstream SHA (persisted under `~/.dsh/desktop/offered-update.json`; not a system notification). The always-visible menu bar carries the standard **文件 / 编辑 / 视图** menus — quit, clipboard roles, reload, zoom, fullscreen — beside **更新 → 打开更新中心** (`CmdOrCtrl+U`), which opens the same window at any time. From there you can check, download, install, and watch progress; after confirmation the job:
 
 1. obtains the target source — preferring a local git repository when `DSH_DESKTOP_UPDATE_REPO_DIR` names one whose origin matches the watched repository (`git fetch`, then a detached `git worktree add`, pruned first so an interrupted run recovers), and otherwise downloading the source archive, trying `codeload.github.com` before the `github.com/<repo>/archive/<sha>.tar.gz` redirect,
-2. bootstraps the declared pnpm version on the bundled Node (store isolated under the update work directory, not the user's global pnpm store),
-3. installs dependencies and builds the checkout against the selected npm registry mirror,
+2. bootstraps the declared pnpm version on the bundled Node (a persistent store and metadata cache under `~/.dsh/desktop`, not the user's global pnpm store),
+3. settles on a registry that answers — the selected mirror first, another built-in mirror when it does not — then installs dependencies and builds the checkout, reusing what earlier updates already downloaded,
 4. assembles a new payload (reusing the running Node executable), boot-smokes it, and atomically flips the `~/.dsh/desktop/payloads/current` pointer,
 5. restarts the backend with the new version.
 
-Downloads run on Electron's `net.fetch`, so they resolve the system proxy the way the app's own window does; each attempt gets a 30-minute timeout and three retries, because a large archive over a slow link is slow but still progressing. The old payload directory stays until the next successful update, so a failed build leaves the current version untouched. The Electron shell itself is not updated — only the bundled backend code.
+Downloads and the update check run on Electron's `net.fetch`, so they resolve the system proxy the way the app's own window does; each attempt gets a 30-minute timeout and three retries, because a large archive over a slow link is slow but still progressing. The subprocesses inherit that same route: the proxy is resolved per endpoint over Chromium's stack and handed to pnpm, npm, and git, which otherwise read only the environment — empty under a GUI launch when the proxy lives in the desktop's network settings. A proxy that is configured but no longer accepts connections is detected and the job goes direct, so a stopped VPN or proxy client cannot fail the update. The old payload directory stays until the next successful update, so a failed build leaves the current version untouched. The Electron shell itself is not updated — only the bundled backend code.
+
+The update check presents a token when `DSH_DESKTOP_UPDATE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` names one, and otherwise uses the credential `gh auth token` reports. The token is sent only to the API host and raises GitHub's limit from 60 requests per hour per IP, which every user behind one proxy exit address shares, to 5000; without one the check still runs unauthenticated.
 
 Requirements and caveats:
 
 - **Network** at update time, plus a few minutes of CPU and a few GB of temporary disk for the build tree (removed after a successful swap).
 - **Trust**: an update downloads and builds code from the configured repository and runs its postinstall scripts — the same trust as `git pull && pnpm install` on that repository. The default is the official `deepseek-ai/deepseek-harness` master branch; override with `DSH_DESKTOP_UPDATE_REPO`.
-- The install/build subprocess uses a pnpm store under the update work directory, not `~/.local/share/pnpm`. A root-owned global store (from `sudo pnpm`) therefore cannot fail the job with EACCES.
+- Every subprocess that resolves packages — install, build, and the payload deploy — reads one persistent store at `~/.dsh/desktop/pnpm-store` and one metadata cache at `~/.dsh/desktop/pnpm-cache`, not `~/.local/share/pnpm`. pnpm 11 takes both paths only as CLI flags, so the updater hands them — with the registry, `--prefer-offline`, and the fetch tuning — to each such command; without them the deploy resolves against fresh directories under the wiped work directory and re-downloads the whole closure. A root-owned global store (from `sudo pnpm`) therefore cannot fail the job with EACCES.
 - Updates are **prompted inside the Update Center, not silent**: the multi-minute rebuild starts only after you click **下载并安装**.
-- The Update Center lets you pick an **npm registry mirror** (npmmirror, Tencent Cloud, Huawei Cloud, official) before install; download and install steps stream detail into the log panel from the start.
+- The Update Center lets you pick an **npm registry mirror** (npmmirror, Tencent Cloud, Huawei Cloud, official) before install; the job health-checks the candidates and uses another built-in mirror when the selected one does not answer — the log panel names the registry actually in use, and your selection is left as you set it. Download and install steps stream detail into the log panel from the start.
 
 ## The deploy root
 
@@ -111,7 +113,7 @@ The shell's specs run under the repository's vitest configuration:
 pnpm exec vitest run desktop-linux/tests
 ```
 
-They cover payload resolution, the readiness-line parser, the server launcher's spawn arguments, the update job's source and download behavior, the brand rewrites, and the offer bookkeeping. `src/updater/update-job.ts` imports `electron` on demand only, so these specs run outside an Electron runtime.
+They cover payload resolution, the readiness-line parser, the server launcher's spawn arguments, the update job's source and download behavior, the registry preflight and the subprocess environment (including the system proxy), the brand rewrites, and the offer bookkeeping. `src/updater/update-job.ts` imports `electron` on demand only, so these specs run outside an Electron runtime.
 
 ## Known limitations and deferred work
 
