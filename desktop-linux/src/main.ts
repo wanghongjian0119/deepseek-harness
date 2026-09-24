@@ -31,6 +31,7 @@ import { dshHome, readPayloadManifest, resolvePayloadRoot } from './payload.ts'
 import { launchServer, type ServerHandle } from './server-launcher.ts'
 import { LOADING_HTML, splashStatusScript } from './splash.ts'
 import { shouldOpenExternally } from './external-url.ts'
+import { contextMenuTemplate } from './context-menu.ts'
 import { UpdateCenter } from './updater/update-center.ts'
 import { checkForUpdate } from './updater/update-check.ts'
 import { chromiumFetch } from './updater/electron-net.ts'
@@ -114,6 +115,12 @@ function createWindow(): BrowserWindow {
     },
   })
   win.once('ready-to-show', () => { win.show() })
+  // Electron shows no context menu by itself: without this handler a
+  // right-click in the shell does nothing at all, including in the terminal.
+  win.webContents.on('context-menu', (_event, params) => {
+    const template = contextMenuTemplate(params)
+    if (template.length > 0) Menu.buildFromTemplate(template).popup({ window: win })
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (shouldOpenExternally(url, appOrigin)) void shell.openExternal(url)
     return { action: 'deny' }
