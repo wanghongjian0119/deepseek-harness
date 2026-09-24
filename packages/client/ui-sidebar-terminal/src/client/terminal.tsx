@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { Button, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutline16, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalViewState, TerminalView } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css'
 import css from './terminal.module.css'
 import { TerminalTheme } from './terminal-theme.ts'
 import { observeTerminalCursor } from './terminal-cursor.ts'
+import { macShortcutPlatform, terminalClipboardAction } from './terminal-clipboard.ts'
 
 /** Standard sidebar owner share plus terminal model and localized copy. */
 export type TerminalBodyProps = PropsRuntime<'sidebar.right.pane.tab'> & PropsLocale<'sidebarTerminal'> & InjectFace<TerminalBodyInjected>
@@ -99,6 +100,16 @@ function TerminalScreen({ state, model, visible, label, theme }: {
     fit.current = addon
     lastRevision.current = 0
     const input = xterm.onData((data) => { model.write(data) })
+    // xterm turns Ctrl+C/Ctrl+V into control characters and cancels the
+    // browser's copy and paste, so the clipboard combinations are resolved
+    // here: copy writes the selection itself, and paste declines the key so
+    // the browser's native paste reaches xterm's own paste handling.
+    const mac = macShortcutPlatform()
+    xterm.attachCustomKeyEventHandler((event) => {
+      const action = terminalClipboardAction(event, xterm.hasSelection(), mac)
+      if (action === 'copy') void writeClipboard(xterm.getSelection())
+      return action === undefined
+    })
     const measure = (): void => {
       if (!current.current.visible || !current.current.state.writable || node.clientWidth === 0 || node.clientHeight === 0) return
       fitScreen(xterm, addon, current.current.state, model)

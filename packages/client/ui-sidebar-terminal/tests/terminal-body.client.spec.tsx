@@ -20,6 +20,8 @@ class FakeTerminal {
   options: { disableStdin?: boolean; theme?: ITheme }
   textarea: HTMLTextAreaElement | undefined = document.createElement('textarea')
   input: ((data: string) => void) | undefined
+  selection = ''
+  keyHandler: ((event: KeyboardEvent) => boolean) | undefined
   readonly disposeInput = vi.fn()
   readonly parser = { registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })) }
   renderFrame: (() => void) | undefined
@@ -37,6 +39,9 @@ class FakeTerminal {
   constructor(options: object) { this.options = options; fake.terminals.push(this) }
   open(node: HTMLElement) { node.appendChild(this.textarea!) }
   onData(input: (data: string) => void) { this.input = input; return { dispose: this.disposeInput } }
+  attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.keyHandler = handler }
+  hasSelection() { return this.selection !== '' }
+  getSelection() { return this.selection }
 }
 vi.mock('@xterm/xterm', () => ({ Terminal: vi.fn(function (options: object) { return new FakeTerminal(options) }) }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { proposeDimensions() { return fake.dimensions } } }))
@@ -155,6 +160,28 @@ it('keeps one emulator across rename and locale updates, applies snapshots and o
   expect(terminal.dispose).toHaveBeenCalledOnce()
   expect(terminal.disposeInput).toHaveBeenCalledOnce()
   expect(disconnect).toHaveBeenCalledOnce()
+})
+
+it('copies the selected screen and lets the browser paste the clipboard', () => {
+  const prior = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const writeText = vi.fn(async () => {})
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  try {
+    mount({ ...idle, info, phase: 'connected', writable: true })
+    const terminal = fake.terminals[0]!
+    const press = (key: string) => terminal.keyHandler!(new KeyboardEvent('keydown', { key, ctrlKey: true }))
+    expect(press('c')).toBe(true)
+    expect(writeText).not.toHaveBeenCalled()
+    terminal.selection = 'selected output'
+    expect(press('c')).toBe(false)
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('selected output')
+    expect(press('v')).toBe(false)
+    expect(writeText).toHaveBeenCalledOnce()
+    expect(press('a')).toBe(true)
+  } finally {
+    if (prior === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+    else Object.defineProperty(navigator, 'clipboard', prior)
+  }
 })
 
 it('displays disconnect, close and exit states and offers explicit reconnection and takeover', () => {

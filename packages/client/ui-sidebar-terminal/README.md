@@ -29,6 +29,8 @@ Open the right sidebar and click **New terminal** to open the remembered availab
 
 Double-click the terminal's tab title to rename it. **Take control** makes the current attachment writable when another page owns input. A temporary disconnect preserves the screen and offers **Reconnect**, without exposing transport diagnostics. An exited shell remains visible with its exit code and offers **New terminal**; it never restarts automatically. Exited terminals count toward the Session limit; close unused tabs when the limit is reached.
 
+Drag to select terminal text. Ctrl+C copies the selection (Command+C on macOS) and still sends SIGINT when nothing is selected; Ctrl+V pastes the clipboard (Command+V on macOS). Ctrl+Shift+C and Ctrl+Shift+V also copy and paste without reaching the shell.
+
 Closing or replacing a terminal tab removes it immediately and ends its process in the background. A cleanup failure shows a small notification with **Retry**; retrying does not reopen the tab. Collapsing, switching tabs or Sessions, floating and fullscreen presentation preserve the process.
 
 After reload, the [sidebar restores its layout](../../client/ui-sidebar-right/README.md#state) and each terminal reconnects to its saved Host identity in the original tab. Collapsed and inactive tabs do not create recovery duplicates or change selection. Host terminals without a saved tab association reopen as recovery tabs; recovery failure offers **Retry terminal recovery**. A missing saved process shows a localized unavailable panel with **New terminal**. Clicking it replaces the unavailable tab in place with a fresh terminal; recovery never creates that replacement automatically.
