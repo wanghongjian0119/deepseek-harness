@@ -65,10 +65,6 @@ Linux notes:
 
 `build:payload` boots the staged payload with the same arguments the window uses, so it needs a CLI that accepts them. The `apps/cli` in this checkout declares `--no-open`, `--port 0`, and `--host`, so the smoke runs against the payload this checkout just built and no staged payload is needed.
 
-### Brand row tweaks
-
-[`src/payload-builder.ts`](src/payload-builder.ts) runs `applyBrandTweaks` after the deploy closure lands and before the smoke, so the smoke verifies what ships. It retitles the `brand.localBuild` locale entry in both dictionaries and restyles the stacked source-build brand row to release sizing, matching only the class-name suffix of build-hashed CSS-module rules and only whole declaration positions. Both rewrites are best-effort: a client bundle whose markup differs — including one that already renders the target name and sizing — is logged and left byte-identical rather than failed.
-
 ## Update Center (source-based)
 
 The repository publishes no backend installers, so the app tracks the **master commit SHA** of a configured source repository instead of a version number. On launch, and every six hours while running, the shell compares the payload's recorded `sourceRef` with that branch's head; when newer code exists it opens the in-app **Update Center** once per new upstream SHA (persisted under `~/.dsh/desktop/offered-update.json`; not a system notification). The always-visible menu bar carries the standard **文件 / 编辑 / 视图** menus — quit, clipboard roles, reload, zoom, fullscreen — beside **更新 → 打开更新中心** (`CmdOrCtrl+U`), which opens the same window at any time. From there you can check, download, install, and watch progress; after confirmation the job:
@@ -129,7 +125,7 @@ The shell's specs run under the repository's vitest configuration:
 pnpm exec vitest run desktop-linux/tests
 ```
 
-They cover payload resolution, the readiness-line parser, the server launcher's spawn arguments, the update job's source and download behavior, the registry preflight and the subprocess environment (including the system proxy), the brand rewrites, and the offer bookkeeping. `src/updater/update-job.ts` imports `electron` on demand only, so these specs run outside an Electron runtime.
+They cover payload resolution, the readiness-line parser, the server launcher's spawn arguments, the update job's source and download behavior, the registry preflight and the subprocess environment (including the system proxy), and the offer bookkeeping. `src/updater/update-job.ts` imports `electron` on demand only, so these specs run outside an Electron runtime.
 
 ## Known limitations and deferred work
 
