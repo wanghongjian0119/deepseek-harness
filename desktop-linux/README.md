@@ -105,6 +105,22 @@ Regenerate after dependency changes:
 pnpm exec tsx desktop-linux/scripts/generate-deploy-root.ts
 ```
 
+## Following upstream
+
+This fork keeps upstream's commit history, so tracking a new upstream release is an ordinary merge:
+
+```sh
+git fetch origin master
+git merge origin/master
+pnpm install --no-frozen-lockfile
+pnpm run clean
+pnpm exec tsx desktop-linux/scripts/generate-deploy-root.ts
+pnpm exec tsx scripts/verify-runtime-closure.ts --manifest desktop-linux/deploy-root/package.json
+pnpm run build
+```
+
+`pnpm run clean` is required rather than tidy-up: upstream deletes and renames packages, and a deleted package's gitignored `lib/` survives the merge, then fails the next bundle with a missing export. Regenerate the deploy root after any dependency change, set this package's `version` to the workspace version, and re-record any paired document the merge touched with `pnpm run verify-translation-pairing --write <file>`.
+
 ## Tests
 
 The shell's specs run under the repository's vitest configuration:

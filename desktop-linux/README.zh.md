@@ -105,6 +105,22 @@ pnpm run verify-runtime-closure -- --manifest desktop-linux/deploy-root/package.
 pnpm exec tsx desktop-linux/scripts/generate-deploy-root.ts
 ```
 
+## 跟进上游
+
+本 fork 保留上游的提交历史，因此跟进新版本就是一次普通合并：
+
+```sh
+git fetch origin master
+git merge origin/master
+pnpm install --no-frozen-lockfile
+pnpm run clean
+pnpm exec tsx desktop-linux/scripts/generate-deploy-root.ts
+pnpm exec tsx scripts/verify-runtime-closure.ts --manifest desktop-linux/deploy-root/package.json
+pnpm run build
+```
+
+`pnpm run clean` 是必需步骤而非整理：上游会删除和改名包，被删包那套 gitignore 的 `lib/` 产物会留在合并结果里，随后让打包以"导出缺失"失败。依赖有变化后要重新生成 deploy root，把本包的 `version` 对齐工作区版本，并对合并触及的双语文档用 `pnpm run verify-translation-pairing --write <文件>` 重录。
+
 ## 测试
 
 壳的用例跑在仓库统一的 vitest 配置下：
