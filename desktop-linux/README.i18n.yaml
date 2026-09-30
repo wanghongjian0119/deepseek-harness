@@ -26,6 +26,9 @@
 /deepseek-ai-dsh-desktop-linux/packaging/assembling-from-this-checkout:
   en: aef4da5f537755e8
   zh: 2fd7cdc607ec9b39
+/deepseek-ai-dsh-desktop-linux/packaging/brand-row-tweaks:
+  en: 62d994ee103794df
+  zh: 0bc114388504e292
 /deepseek-ai-dsh-desktop-linux/update-center-source-based:
   en: 1e5977cfbd1f1505
   zh: 0f43ab04d42e32a9
@@ -36,8 +39,8 @@
   en: b8e5c853860c44c0
   zh: 72cbd5dfecdd3edb
 /deepseek-ai-dsh-desktop-linux/tests:
-  en: a26b70ec9f35ed11
-  zh: b5848b92f2423617
+  en: 6e224792f3201f69
+  zh: 95aab5942c98e595
 /deepseek-ai-dsh-desktop-linux/known-limitations-and-deferred-work:
   en: 622d6ad91c0be967
   zh: 078deaab5e531cf5
