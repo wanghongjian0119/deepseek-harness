@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-fork-linux-desktop-shell.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-fork-linux-desktop-shell.md
-2026-09-18-fork-linux-desktop-shell.md: 80e1c457da6afdc52bb16b05170ac463cdf2a85b
-2026-09-18-fork-linux-desktop-shell.zh.md: cc9a467a0f49e81dd693512123d596ef7901a17c
+/agent-note-fork-only-linux-desktop-shell:
+  en: e23f92c2b38154ab
+  zh: a40923afccb98f75
+/agent-note-fork-only-linux-desktop-shell/problem:
+  en: ccf8def0989f27bf
+  zh: 1836b3cc41a1d3dd
+/agent-note-fork-only-linux-desktop-shell/decision:
+  en: b9502f6b855a0347
+  zh: 4b92e4b5a2ef9886
+/agent-note-fork-only-linux-desktop-shell/alternatives-considered:
+  en: db3809eabf66b8f2
+  zh: b4d2a1bcd05baca5
+/agent-note-fork-only-linux-desktop-shell/consequences:
+  en: 8eeca1c26a3c2b28
+  zh: fca60eae86584de0
+/agent-note-fork-only-linux-desktop-shell/testing:
+  en: 3e67742955b99745
+  zh: f422d463244e07ad

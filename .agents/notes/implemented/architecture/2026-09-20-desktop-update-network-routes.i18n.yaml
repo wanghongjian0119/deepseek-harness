@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-desktop-update-network-routes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-20-desktop-update-network-routes.md
-2026-09-20-desktop-update-network-routes.md: 388214e36f220d7892768bed90fd75f839f613e3
-2026-09-20-desktop-update-network-routes.zh.md: f319a4de6301afc5f6fb9efe5faf41011eb3f9b8
+/agent-note-desktop-update-network-routes-and-persistent-package-caches:
+  en: be09085af1bcc3b6
+  zh: 768cae7644e19761
+/agent-note-desktop-update-network-routes-and-persistent-package-caches/problem:
+  en: b6b54aa882cbc8d4
+  zh: 2e735e560f641a1c
+/agent-note-desktop-update-network-routes-and-persistent-package-caches/decision:
+  en: a35a61c40a21142e
+  zh: 148374d4c0d9e291
+/agent-note-desktop-update-network-routes-and-persistent-package-caches/alternatives-considered:
+  en: 1597ac41aab12301
+  zh: cb85f48ca1a2e67c
+/agent-note-desktop-update-network-routes-and-persistent-package-caches/consequences:
+  en: 0c30b83d06d7c7dc
+  zh: ee4d7fadcd6ee273
+/agent-note-desktop-update-network-routes-and-persistent-package-caches/verification:
+  en: 698cbbe21e6d7190
+  zh: 0404995e90817f03

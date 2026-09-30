@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-linux",
   "description": "Linux-only Electron desktop shell for the DeepSeek Harness Web GUI (.deb and AppImage): bundles the dsh web backend and opens it in a native window",
-  "version": "0.1.6-alpha.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",

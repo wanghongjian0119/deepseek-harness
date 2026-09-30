@@ -45,4 +45,4 @@ Web GUI 只能通过 `dsh web`（终端命令，打印 `http://127.0.0.1:3080`�
 
 ## 相关
 
-源码自更新——安装载荷位于 `$DSH_HOME/desktop/payloads`，内置 `resources/dsh` 为种子，以及应用内重建流水线——见[桌面端源码自更新 Note](2026-08-17-desktop-source-self-update.md)。
+源码自更新——安装载荷位于 `$DSH_HOME/desktop/payloads`，内置 `resources/dsh` 为种子，以及应用内重建流水线——见[桌面端源码自更新 Note](2026-08-17-desktop-source-self-update.zh.md)。

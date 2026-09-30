@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-19-mcp-activation-does-not-wait.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-19-mcp-activation-does-not-wait.md
-2026-09-19-mcp-activation-does-not-wait.md: 84ab0e54227ff918d9bdc19dd1052c4e2bb0de4d
-2026-09-19-mcp-activation-does-not-wait.zh.md: 55ad1cc5aaabf81be3d532c7a83b975c87b74b2f
+/agent-note-activate-the-mcp-client-without-waiting-for-a-connection:
+  en: d0f156aa0d756a80
+  zh: 218d4d7a9bb77f27
+/agent-note-activate-the-mcp-client-without-waiting-for-a-connection/problem:
+  en: 376248ded9b3aa91
+  zh: 80290f50317c7de4
+/agent-note-activate-the-mcp-client-without-waiting-for-a-connection/decision:
+  en: 25e92b11018ff3b9
+  zh: 84a3de0c410b6c28
+/agent-note-activate-the-mcp-client-without-waiting-for-a-connection/alternatives-considered:
+  en: 4044cf1fb6862323
+  zh: 52c717fe183fe1db
+/agent-note-activate-the-mcp-client-without-waiting-for-a-connection/consequences:
+  en: 638f07be29912a08
+  zh: fd212c800d978bf4

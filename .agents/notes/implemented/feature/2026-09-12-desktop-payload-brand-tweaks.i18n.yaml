@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-desktop-payload-brand-tweaks.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-desktop-payload-brand-tweaks.md
-2026-09-12-desktop-payload-brand-tweaks.md: 7194d8c29e143e6415199436348707d94ab26bfc
-2026-09-12-desktop-payload-brand-tweaks.zh.md: 7e6c026c1c87ce4e7db3fdf9925cecfea66ea587
+/agent-note-desktop-payload-brand-tweaks:
+  en: b7bc24ef20f731a9
+  zh: da881628983976b5
+/agent-note-desktop-payload-brand-tweaks/problem:
+  en: 83edf29259a847d1
+  zh: 210832748503c395
+/agent-note-desktop-payload-brand-tweaks/decision:
+  en: 61c9de8d0d141d47
+  zh: a21a1025452df349
+/agent-note-desktop-payload-brand-tweaks/alternatives-considered:
+  en: 8ed75a579c693dfb
+  zh: 1e081c6fd9fb1511
+/agent-note-desktop-payload-brand-tweaks/consequences:
+  en: d3e3b29b1204d499
+  zh: 04a2ffd287e0f9d6
+/agent-note-desktop-payload-brand-tweaks/verification:
+  en: 4e5ab19d5f57e942
+  zh: 0e37ea310fd52099

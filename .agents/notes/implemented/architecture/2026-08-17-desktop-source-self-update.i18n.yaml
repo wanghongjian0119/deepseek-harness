@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-17-desktop-source-self-update.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-17-desktop-source-self-update.md
-2026-08-17-desktop-source-self-update.md: 658f32f833a5e6df3a5f5d7bd038b38e44f2ec9d
-2026-08-17-desktop-source-self-update.zh.md: 548fa439182bdf1626e7df8b8449d40e290d6117
+/agent-note-desktop-source-self-update-dsh-desktop:
+  en: f9da8bf55a5c168e
+  zh: efd70625e4f4046d
+/agent-note-desktop-source-self-update-dsh-desktop/problem:
+  en: b7dc0c37ae4801a2
+  zh: 2a31ef3a26cd944f
+/agent-note-desktop-source-self-update-dsh-desktop/decision:
+  en: a15c7c13f167e5ac
+  zh: 63bcc2ef60c2f344
+/agent-note-desktop-source-self-update-dsh-desktop/decision/source-based-self-update-tracked-by-the-upstream-master-commit-sha:
+  en: 7fd53e2aaaf1427e
+  zh: f97f25700e5a0957
+/agent-note-desktop-source-self-update-dsh-desktop/alternatives-considered:
+  en: 89026cc689137cc7
+  zh: 938aabdde6ccd466
+/agent-note-desktop-source-self-update-dsh-desktop/consequences:
+  en: 99a456f3c2734f55
+  zh: a2a848365e0c3583
+/agent-note-desktop-source-self-update-dsh-desktop/verification:
+  en: 58bc2eede2eba5d2
+  zh: fc9670ce0ede11ee

@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write desktop-linux/README.md
-README.md: 279e9448d38f6738187b8c6386ce3b849aa3c0b7
-README.zh.md: 34cfb70a3edf6161722c63af777b93ad0fa9e7bc
+/deepseek-ai-dsh-desktop-linux:
+  en: 7d311cecddd83989
+  zh: 8c57de22dddd9dd6
+/deepseek-ai-dsh-desktop-linux/how-it-works:
+  en: 86ffea4c8fd2e7f0
+  zh: 18fc56523c7d393c
+/deepseek-ai-dsh-desktop-linux/how-it-works/payload-contents:
+  en: 65f1aa8b93921376
+  zh: c7d6009dc279a718
+/deepseek-ai-dsh-desktop-linux/how-it-works/launch-and-readiness:
+  en: 3cbfc835e0be6d31
+  zh: 729225b68c30d184
+/deepseek-ai-dsh-desktop-linux/how-it-works/browser-sandbox-fallback:
+  en: e0c2d00373dfe616
+  zh: 0c60b015ad5e3b06
+/deepseek-ai-dsh-desktop-linux/development:
+  en: d47407309ffeb1c6
+  zh: fce25a92db453127
+/deepseek-ai-dsh-desktop-linux/packaging:
+  en: 9915d79c8188b4aa
+  zh: 559b37fc97f860cb
+/deepseek-ai-dsh-desktop-linux/packaging/assembling-from-this-checkout:
+  en: aef4da5f537755e8
+  zh: 2fd7cdc607ec9b39
+/deepseek-ai-dsh-desktop-linux/packaging/brand-row-tweaks:
+  en: 62d994ee103794df
+  zh: 0bc114388504e292
+/deepseek-ai-dsh-desktop-linux/update-center-source-based:
+  en: 1e5977cfbd1f1505
+  zh: 0f43ab04d42e32a9
+/deepseek-ai-dsh-desktop-linux/the-deploy-root:
+  en: 6505851994f7cc63
+  zh: 793b5dfd3a0c5fbc
+/deepseek-ai-dsh-desktop-linux/tests:
+  en: 6e224792f3201f69
+  zh: 95aab5942c98e595
+/deepseek-ai-dsh-desktop-linux/known-limitations-and-deferred-work:
+  en: 622d6ad91c0be967
+  zh: 078deaab5e531cf5
