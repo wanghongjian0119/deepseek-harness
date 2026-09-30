@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PayloadManifest } from '../payload.ts'
 import { dshHome } from '../payload.ts'
-import { checkForUpdate, updateRepo } from './update-check.ts'
+import { checkForUpdate, updateRepo, type UpdateCheckResult } from './update-check.ts'
 import { chromiumFetch } from './electron-net.ts'
 import { resolveGitHubToken } from './github-token.ts'
 import {
@@ -107,6 +107,60 @@ export function resolveUpdateCenterHtml(): string {
 export function shortRef(sha: string | undefined): string | undefined {
   if (sha === undefined || sha === '') return undefined
   return sha.length > 12 ? sha.slice(0, 12) : sha
+}
+
+/** Render a ref for copy, naming an unrecorded one instead of printing `undefined`. */
+function refLabel(sha: string | undefined): string {
+  return shortRef(sha) ?? '未记录'
+}
+
+/**
+ * Mark an unreachable relation branch.
+ * @param relation - impossible value; an unhandled typed variant fails at the call site.
+ * @returns never; a runtime value that escaped its type always throws.
+ */
+function assertNeverRelation(relation: never): never {
+  throw new Error(`unreachable update relation: ${String(relation)}`)
+}
+
+/**
+ * Update Center copy for one check result.
+ *
+ * Only a branch head that descends from the payload's ref is installable —
+ * the relation `available` reports — so the other relations explain why
+ * nothing can be installed rather than reporting the app as up to date.
+ * @param result - the comparison produced by {@link checkForUpdate}.
+ * @returns the message and the severity it renders with.
+ */
+export function describeUpdateCheck(
+  result: UpdateCheckResult,
+): { message: string; messageKind: UpdateCenterState['messageKind'] } {
+  if (result.latestSha === undefined) {
+    return { message: '未能读取上游提交，请稍后重试。', messageKind: 'err' }
+  }
+  switch (result.relation) {
+    case 'ahead':
+      return { message: `发现新版本 ${refLabel(result.latestSha)}，可下载并安装。`, messageKind: 'warn' }
+    case 'identical':
+      return { message: '已是最新源码版本。', messageKind: 'ok' }
+    case 'behind':
+      return {
+        message: `更新源基线（${refLabel(result.latestSha)}）落后于当前载荷（${refLabel(result.currentSha)}），不提供安装。`,
+        messageKind: 'warn',
+      }
+    case 'diverged':
+      return {
+        message: `更新源（${refLabel(result.latestSha)}）与当前载荷（${refLabel(result.currentSha)}）已分叉，无法快进安装。`,
+        messageKind: 'warn',
+      }
+    case 'unknown':
+      return {
+        message: `无法确认更新源（${refLabel(result.latestSha)}）比当前载荷（${refLabel(result.currentSha)}）新，不提供安装。`,
+        messageKind: 'warn',
+      }
+    default:
+      return assertNeverRelation(result.relation)
+  }
 }
 
 /** Build the initial UI state from the running payload. */
@@ -245,12 +299,7 @@ export class UpdateCenter {
         available,
         busy: false,
         phase: 'idle',
-        message: available
-          ? `发现新版本 ${shortRef(result.latestSha)}，可下载并安装。`
-          : result.latestSha === undefined
-            ? '未能读取上游提交，请稍后重试。'
-            : '已是最新源码版本。',
-        messageKind: available ? 'warn' : result.latestSha === undefined ? 'err' : 'ok',
+        ...describeUpdateCheck(result),
       }
       this.pushState()
       return this.snapshot()

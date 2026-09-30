@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-30-desktop-update-downgrade.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-30-desktop-update-downgrade.md
+/agent-note-desktop-update-refuses-a-non-descendant-baseline:
+  en: 973d0d590dd63c78
+  zh: 300f745777fc5d22
+/agent-note-desktop-update-refuses-a-non-descendant-baseline/problem:
+  en: 1ad070ae0eebefbc
+  zh: f57916fe7dd154e5
+/agent-note-desktop-update-refuses-a-non-descendant-baseline/decision:
+  en: 2f3c9aae45af71bc
+  zh: c506f50acb65a91a
+/agent-note-desktop-update-refuses-a-non-descendant-baseline/alternatives-considered:
+  en: b0b83db2b61cb9d6
+  zh: a7521e6daa83ebba
+/agent-note-desktop-update-refuses-a-non-descendant-baseline/consequences:
+  en: f09134b239098591
+  zh: cd0af149f7aa02a8
+/agent-note-desktop-update-refuses-a-non-descendant-baseline/verification:
+  en: fc5ce5550cd61dab
+  zh: 8a26cc0bc8c49bfc
