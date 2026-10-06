@@ -12,14 +12,22 @@
 # `POST /repos/deepseek-ai/deepseek-harness/pulls` fails and this fork is the
 # permanent carrier rather than a stopgap.
 #
-# This workflow rebases the fix onto every new upstream master and force-pushes
-# the result. It carries the fix as the source-and-tests-only baseline commit
-# (generated documentation is deliberately excluded so it cannot conflict), and
-# it refuses to run when `master`'s tip is not that commit.
+# This workflow merges upstream master into `master` and never rewrites it. The
+# earlier design cherry-picked the fix onto upstream and force-pushed, which
+# minted a new commit id on every sync; the running shell records the commit it
+# was built from and the updater will install a branch head only when that
+# recorded commit is an ancestor of it, so each rewrite stranded the installed
+# payload and the update center answered `unknown` ("无法确认更新源…新"). A merge
+# keeps every commit that ever ran reachable, so the relation the updater checks
+# stays true across syncs: the old head is always an ancestor of the new one.
+#
+# The fix is therefore carried as ordinary commits in `master`'s history; this
+# workflow only verifies one is still present, and fails rather than let a
+# conflict resolution drop it. Conflicts are left unresolved on purpose: the job
+# fails and `master` keeps serving the previous baseline until a human merges.
 #
 # This file lives on the `ci` branch, which is this fork's default branch, so
-# the schedule fires without adding commits to `master`. A conflicting rebase
-# fails the job and leaves `master` untouched.
+# the schedule fires without adding commits to `master`.
 name: sync-desktop-baseline
 
 on:
@@ -42,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Rebase the MCP fix onto upstream master
+      - name: Merge upstream master into the desktop baseline
         env:
           UPSTREAM_URL: https://github.com/deepseek-ai/deepseek-harness.git
           FIX_SUBJECT: 'fix(mcp-client): bound one connection attempt'
@@ -52,19 +60,39 @@ jobs:
           git config user.email 'dsh-desktop-baseline@users.noreply.github.com'
           git fetch --no-tags "$UPSTREAM_URL" master:refs/remotes/upstream/master
           git fetch --no-tags origin master:refs/remotes/origin/master
+          upstream="$(git rev-parse refs/remotes/upstream/master)"
           baseline="$(git rev-parse refs/remotes/origin/master)"
-          subject="$(git log -1 --format=%s "$baseline")"
-          case "$subject" in
-            "$FIX_SUBJECT"*) ;;
-            *)
-              echo "::error::origin/master tip is not the desktop baseline fix commit: $subject"
-              exit 1
-              ;;
-          esac
-          if git merge-base --is-ancestor refs/remotes/upstream/master "$baseline"; then
+
+          if git merge-base --is-ancestor "$upstream" "$baseline"; then
             echo "master already contains upstream/master; nothing to do"
             exit 0
           fi
-          git switch --detach refs/remotes/upstream/master
-          git -c core.hooksPath=/dev/null cherry-pick "$baseline"
+
+          git switch --detach "$baseline"
+          # A conflict resolves to a failed job that leaves master untouched,
+          # which is the whole point: the installed shell keeps working while a
+          # human merges. --no-edit keeps the default merge message.
+          if ! git -c core.hooksPath=/dev/null merge --no-edit "$upstream"; then
+            echo "::error::upstream/master conflicts with the desktop baseline; resolve it on master and re-run"
+            git diff --name-only --diff-filter=U | while read -r path; do
+              echo "::error file=$path::conflicted"
+            done
+            exit 1
+          fi
+
+          if git diff --quiet "refs/remotes/origin/master" HEAD; then
+            echo "merge added no content; nothing to push"
+            exit 0
+          fi
+
+          # A conflict resolution that takes upstream wholesale would silently
+          # drop the fix, and the updater cannot detect that.
+          if ! git log --oneline --grep="$FIX_SUBJECT" HEAD | grep -q .; then
+            echo "::error::the merge no longer contains the MCP startup-budget fix"
+            exit 1
+          fi
+
+          # Fast-forward from the previous baseline in the normal case, forced
+          # only when master had to be reattached to upstream by hand. The lease
+          # pins the head this job read, so a concurrent push is rejected.
           git push --force-with-lease=refs/heads/master:"$baseline" origin HEAD:refs/heads/master
