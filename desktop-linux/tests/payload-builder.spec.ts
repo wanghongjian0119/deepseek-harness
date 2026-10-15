@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closureDeployArgs, stagedLinkContainsPayload } from '../src/payload-builder.ts'
+import { closureDeployArgs, stagedLinkContainsPayload, stagedLinkPackageName } from '../src/payload-builder.ts'
 
 /** Registry and store flags the in-app updater hands to every pnpm invocation. */
 const REGISTRY_FLAGS = [
@@ -54,5 +54,26 @@ describe('stagedLinkContainsPayload', () => {
       '/src/desktop-linux/resources/dsh/runtime',
       '/src/desktop-linux-x',
     )).toBe(false)
+  })
+})
+
+describe('stagedLinkPackageName', () => {
+  const nodeModules = '/payload/runtime/node_modules'
+
+  it('names an unscoped hoisted entry', () => {
+    expect(stagedLinkPackageName(nodeModules, `${nodeModules}/dsh-desktop-web-runtime-pkg`))
+      .toBe('dsh-desktop-web-runtime-pkg')
+  })
+
+  it('names a scoped hoisted entry', () => {
+    expect(stagedLinkPackageName(nodeModules, `${nodeModules}/@deepseek-ai/dsh-desktop-linux`))
+      .toBe('@deepseek-ai/dsh-desktop-linux')
+  })
+
+  it('leaves links nested below a package to the closure check', () => {
+    expect(stagedLinkPackageName(
+      nodeModules,
+      `${nodeModules}/@deepseek-ai/dsh-mcp-client/node_modules/@deepseek-ai/dsh-shell`,
+    )).toBeUndefined()
   })
 })
