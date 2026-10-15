@@ -204,7 +204,22 @@ async function restoreLegacyHoists(sourceRoot: string, payload: string): Promise
   if (restored.length > 0) log(`assemble-payload: restored legacy deploy hoists: ${restored.join(', ')}`)
 }
 
-/** Replace deploy-time package links with real copies and reject any remaining link. */
+/**
+ * Whether a staged package link points at a directory that contains the payload.
+ *
+ * The hoisted store links every workspace project, and the legacy deploy carries
+ * those links into the target even when no runtime package depends on them. The
+ * desktop shell is one of them, so materializing it means copying the shell into
+ * its own subtree, which fails with EINVAL; such a link is dropped instead.
+ * @param payloadDir - absolute payload directory the links are materialized under.
+ * @param sourceDir - absolute link target, after resolution.
+ * @returns true when the link must be dropped rather than copied.
+ */
+export function stagedLinkContainsPayload(payloadDir: string, sourceDir: string): boolean {
+  return payloadDir === sourceDir || payloadDir.startsWith(sourceDir + sep)
+}
+
+/** Replace deploy-time package links with real copies, drop the ones that contain the payload, and reject any remaining link. */
 async function materializeStagedLinks(payload: string): Promise<void> {
   const nodeModules = join(payload, 'node_modules')
   let remaining = await findSymlink(nodeModules)
@@ -218,6 +233,12 @@ async function materializeStagedLinks(payload: string): Promise<void> {
     }
     const destination = remaining
     const source = await realpath(destination)
+    if (stagedLinkContainsPayload(payload, source)) {
+      await rm(destination, { recursive: true, force: true })
+      log(`assemble-payload: dropped staged link into the payload's own source tree: ${destination}`)
+      remaining = await findSymlink(nodeModules)
+      continue
+    }
     const nestedNodeModules = join(source, 'node_modules')
     await rm(destination, { recursive: true, force: true })
     await cp(source, destination, {

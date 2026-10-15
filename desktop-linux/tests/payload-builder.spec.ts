@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closureDeployArgs } from '../src/payload-builder.ts'
+import { closureDeployArgs, stagedLinkContainsPayload } from '../src/payload-builder.ts'
 
 /** Registry and store flags the in-app updater hands to every pnpm invocation. */
 const REGISTRY_FLAGS = [
@@ -31,5 +31,28 @@ describe('closureDeployArgs', () => {
   it('keeps a multi-word invocation prefix intact when no flags are given', () => {
     expect(closureDeployArgs(['pnpm', 'dlx', 'pnpm@11.7.0'], [], '/payload/runtime').slice(0, 4))
       .toEqual(['dlx', 'pnpm@11.7.0', '--filter', 'dsh-desktop-web-runtime-pkg'])
+  })
+})
+
+describe('stagedLinkContainsPayload', () => {
+  it('drops the desktop shell link whose target contains the payload', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/desktop-linux',
+    )).toBe(true)
+  })
+
+  it('keeps a link to a workspace package outside the payload', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/packages/core/agent',
+    )).toBe(false)
+  })
+
+  it('does not treat a shared name prefix as containment', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/desktop-linux-x',
+    )).toBe(false)
   })
 })
