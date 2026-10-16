@@ -15,6 +15,11 @@
  * root: electron-builder's extraResources copy hard-excludes a source root's
  * own `node_modules` directory, while nested ones pass through.
  *
+ * The closure is flat — one physical copy per package. `pnpm deploy --legacy`
+ * still writes package-local `node_modules` trees, and
+ * {@link flattenDeployedClosure} drops the ones repeating a closure entry; see
+ * there for why a duplicate copy breaks the running backend.
+ *
  * Two consumers share this module: the build-time script
  * (`scripts/assemble-payload.ts`, system pnpm via `pnpm dlx`, Node runtime
  * downloaded from nodejs.org or `DSH_DESKTOP_NODE_MIRROR`) and the in-app
@@ -305,6 +310,154 @@ async function findSymlink(directory: string): Promise<string | undefined> {
     }
   }
   return undefined
+}
+
+/** One package directory directly inside a `node_modules` directory. */
+interface InstalledPackage {
+  /** Name as the importer writes it, scope included. */
+  readonly name: string
+  /** Absolute path to the package directory. */
+  readonly directory: string
+}
+
+/** List the packages directly inside one `node_modules` directory, expanding scoped names. */
+async function listInstalledPackages(nodeModules: string): Promise<InstalledPackage[]> {
+  const installed: InstalledPackage[] = []
+  for (const entry of await readdir(nodeModules, { withFileTypes: true })) {
+    // `.bin` holds command shims, not packages, and every other dot entry is metadata.
+    if (entry.name.startsWith('.') || !entry.isDirectory()) continue
+    const path = join(nodeModules, entry.name)
+    if (!entry.name.startsWith('@')) {
+      installed.push({ name: entry.name, directory: path })
+      continue
+    }
+    for (const scoped of await readdir(path, { withFileTypes: true })) {
+      if (scoped.name.startsWith('.') || !scoped.isDirectory()) continue
+      installed.push({ name: `${entry.name}/${scoped.name}`, directory: join(path, scoped.name) })
+    }
+  }
+  return installed
+}
+
+/**
+ * Read one package's declared version.
+ * @param directory - the package directory holding the manifest.
+ * @returns the declared version, or undefined when the directory has no readable manifest.
+ */
+function readPackageVersion(directory: string): string | undefined {
+  let manifest: { version?: unknown }
+  try {
+    manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')) as { version?: unknown }
+  } catch {
+    // Without a version the copy cannot be proven redundant, so the caller keeps it.
+    return undefined
+  }
+  return typeof manifest.version === 'string' ? manifest.version : undefined
+}
+
+/**
+ * Select the package-local copies that repeat a flat closure entry.
+ * @param entries - nested entries as `[name, version]`; an undefined version means no readable manifest.
+ * @param closureVersions - version the closure root holds under each name.
+ * @returns names whose nested copy is interchangeable with the closure root's, in the given order.
+ */
+export function redundantClosureCopies(
+  entries: readonly (readonly [string, string | undefined])[],
+  closureVersions: ReadonlyMap<string, string>,
+): string[] {
+  return entries
+    .filter(([name, version]) => version !== undefined && closureVersions.get(name) === version)
+    .map(([name]) => name)
+}
+
+/**
+ * Every `node_modules` directory below the closure root, outermost first.
+ *
+ * The walk covers any depth, not just a package's own `node_modules`: a package
+ * that ships one further down (the desktop shell's `deploy-root` does) holds the
+ * same duplicates and would otherwise slip past. The outermost-first order lets
+ * a caller remove a whole tree and skip the entries it took with it.
+ */
+async function nestedNodeModules(payload: string): Promise<string[]> {
+  const root = join(payload, 'node_modules')
+  const found: string[] = []
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const path = join(directory, entry.name)
+      if (entry.name === 'node_modules' && path !== root) found.push(path)
+      await visit(path)
+    }
+  }
+  await visit(root)
+  return found
+}
+
+/**
+ * Drop the package-local `node_modules` trees the legacy deploy re-creates.
+ *
+ * `pnpm deploy --legacy --config.node-linker=hoisted` flattens the closure into
+ * `runtime/node_modules`, but still writes a `node_modules` directory inside
+ * some deployed packages. A nested copy of a package the closure root already
+ * holds gives Node two module instances, so a `unique symbol` one instance
+ * registered reads back `undefined` from the other: `dsh-tools`' scheduler key
+ * failed exactly that way and every tool call threw "Cannot read properties of
+ * undefined (reading 'prepare')".
+ *
+ * A nested copy is dropped only when the closure root holds the same name at the
+ * same version. A genuine version conflict stays, because dropping it would
+ * change which copy that package's importers resolve.
+ * @param payload - the payload's `runtime` directory, whose `node_modules` holds the closure.
+ */
+export async function flattenDeployedClosure(payload: string): Promise<void> {
+  const closureVersions = new Map<string, string>()
+  for (const installed of await listInstalledPackages(join(payload, 'node_modules'))) {
+    const version = readPackageVersion(installed.directory)
+    if (version !== undefined) closureVersions.set(installed.name, version)
+  }
+  const redundantIn = async (nested: string): Promise<{ installed: InstalledPackage[]; redundant: Set<string>; unreadable: number }> => {
+    const installed = await listInstalledPackages(nested)
+    const entries = installed.map(entry => [entry.name, readPackageVersion(entry.directory)] as const)
+    return {
+      installed,
+      unreadable: entries.filter(([, version]) => version === undefined).length,
+      redundant: new Set(redundantClosureCopies(entries, closureVersions)),
+    }
+  }
+  // Plan before removing: dropping a whole tree takes its descendants with it, so
+  // a count taken during the removal walk would under-report what actually went.
+  const plan: { nested: string; total: number; drop: InstalledPackage[] }[] = []
+  let dropped = 0
+  let unreadable = 0
+  for (const nested of await nestedNodeModules(payload)) {
+    const measured = await redundantIn(nested)
+    const { installed, redundant } = measured
+    unreadable += measured.unreadable
+    // A tree of only real entries stays; an emptied one enters the plan so it goes too.
+    if (redundant.size === 0 && installed.length > 0) continue
+    plan.push({ nested, total: installed.length, drop: installed.filter(entry => redundant.has(entry.name)) })
+    dropped += redundant.size
+  }
+  for (const { nested, total, drop } of plan) {
+    // An ancestor's removal already took this tree.
+    if (!existsSync(nested)) continue
+    if (drop.length === total) await rm(nested, { recursive: true, force: true })
+    else for (const entry of drop) await rm(entry.directory, { recursive: true, force: true })
+  }
+  if (dropped > 0) log(`assemble-payload: dropped ${dropped} package-local dependencies that repeated the flat closure`)
+  if (unreadable > 0) log(`assemble-payload: kept ${unreadable} package-local directories with no readable manifest, so their version could not be compared`)
+  // Re-walk rather than trust the count: the boot smoke boots a payload whose
+  // closure still holds duplicate copies, so a regression here ships silently.
+  const survivors: string[] = []
+  for (const nested of await nestedNodeModules(payload)) {
+    for (const entry of (await redundantIn(nested)).installed) {
+      const version = readPackageVersion(entry.directory)
+      if (version !== undefined && closureVersions.get(entry.name) === version) survivors.push(entry.directory)
+    }
+  }
+  if (survivors.length > 0) {
+    throw new Error(`assemble-payload: duplicate package copies survive the flatten pass: ${survivors.join(', ')}`)
+  }
 }
 
 /**
@@ -676,6 +829,7 @@ export async function assemblePayload(options: AssemblePayloadOptions): Promise<
   ], sourceRoot)
   await restoreLegacyHoists(sourceRoot, runtimeDir)
   await materializeStagedLinks(runtimeDir)
+  await flattenDeployedClosure(runtimeDir)
   for (const name of DEPLOY_ONLY_DOCS) await rm(join(runtimeDir, name), { force: true })
   // Before the smoke boot, so what gets verified is what ships.
   await applyBrandTweaks(outDir)
