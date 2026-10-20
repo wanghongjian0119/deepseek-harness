@@ -40,7 +40,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { chmod, cp, lstat, mkdir, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { launchServer, DEFAULT_READY_TIMEOUT_MS } from './server-launcher.ts'
 import { indexCarriesBootManifest } from './boot-manifest.ts'
 import { PAYLOAD_FORMAT } from './payload.ts'
@@ -177,6 +177,30 @@ function verifyBuiltArtifacts(sourceRoot: string): void {
 }
 
 /**
+ * Copy one package directory into the payload without its `node_modules`.
+ *
+ * pnpm links workspace peers into each package's own `node_modules`, including
+ * the pair `@deepseek-ai/cordis` / `@deepseek-ai/cordis-plugin-include`, which
+ * link to each other. A dereferencing copy that enters either tree recurses
+ * until the kernel reports ELOOP, so every `node_modules` directory below the
+ * package root is omitted: the deploy root supplies each peer once, as the flat
+ * closure the payload ships.
+ * @param source - package directory, or a link to one, inside the checkout.
+ * @param destination - payload path the package is copied to.
+ */
+async function copyPackageTree(source: string, destination: string): Promise<void> {
+  const resolved = await realpath(source)
+  await cp(resolved, destination, {
+    recursive: true,
+    dereference: true,
+    filter: path => {
+      const inside = relative(resolved, path)
+      return inside === '' || !inside.split(sep).includes('node_modules')
+    },
+  })
+}
+
+/**
  * Restore direct packages that pnpm's legacy hoister places beside the deploy
  * source instead of in the target. The deploy root supplies every peer, so
  * package-local node_modules trees are omitted to preserve one flat closure.
@@ -193,12 +217,7 @@ async function restoreLegacyHoists(sourceRoot: string, payload: string): Promise
       throw new Error(`assemble-payload: deployed dependency ${dependency} is absent from both ${destination} and ${source}`)
     }
     await mkdir(dirname(destination), { recursive: true })
-    const nestedNodeModules = join(source, 'node_modules')
-    await cp(source, destination, {
-      recursive: true,
-      dereference: true,
-      filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
-    })
+    await copyPackageTree(source, destination)
     restored.push(dependency)
   }
   const stillMissing = Object.keys(manifest.dependencies ?? {})
@@ -210,17 +229,45 @@ async function restoreLegacyHoists(sourceRoot: string, payload: string): Promise
 }
 
 /**
- * Replace deploy-time package links with real copies and reject any remaining link.
+ * Whether a staged package link points at a directory that contains the payload.
  *
- * A legacy deploy also links the workspace projects, including the desktop
- * shell itself. That link points at an ancestor of the payload, so copying it
- * would recurse into the output being assembled; such a self-reference is not
- * part of the runtime closure and is dropped instead.
- * @param payload - the payload root whose `node_modules` links are materialized.
+ * Materializing such a link means copying a directory into its own subtree,
+ * which fails with EINVAL. It only arises for a build whose payload lands inside
+ * the checkout it was built from.
+ * @param payloadDir - absolute payload directory the links are materialized under.
+ * @param sourceDir - absolute link target, after resolution.
+ * @returns true when the link must be dropped rather than copied.
  */
-export async function materializeStagedLinks(payload: string): Promise<void> {
+export function stagedLinkContainsPayload(payloadDir: string, sourceDir: string): boolean {
+  return payloadDir === sourceDir || payloadDir.startsWith(sourceDir + sep)
+}
+
+/**
+ * Package name a staged link installs, when the link is one of the entries pnpm
+ * hoists directly beside the closure.
+ * @param nodeModules - absolute `node_modules` directory holding the link.
+ * @param link - absolute path of the link itself.
+ * @returns the package name, or undefined for links nested below a package.
+ */
+export function stagedLinkPackageName(nodeModules: string, link: string): string | undefined {
+  const segments = link.slice(nodeModules.length + 1).split(sep)
+  if (segments.length === 1) return segments[0]
+  if (segments.length === 2 && segments[0]?.startsWith('@') === true) return `${segments[0]}/${segments[1]}`
+  return undefined
+}
+
+/** Replace deploy-time package links with real copies and drop the links that are not part of the closure. */
+async function materializeStagedLinks(payload: string): Promise<void> {
   const nodeModules = join(payload, 'node_modules')
-  const payloadReal = await realpath(payload)
+  const manifest = JSON.parse(readFileSync(join(payload, 'package.json'), 'utf8')) as {
+    name?: string
+    dependencies?: Record<string, string>
+  }
+  // The hoisted store links every workspace project, and the legacy deploy
+  // carries those links over even when the closure never names them: the
+  // desktop shell and the Python runtime deploy root are both leaks of that
+  // kind. Only the declared closure belongs in the payload.
+  const closure = new Set([manifest.name, ...Object.keys(manifest.dependencies ?? {})])
   let remaining = await findSymlink(nodeModules)
   while (remaining !== undefined) {
     const segments = remaining.slice(nodeModules.length + 1).split(sep)
@@ -231,19 +278,22 @@ export async function materializeStagedLinks(payload: string): Promise<void> {
       continue
     }
     const destination = remaining
-    const source = await realpath(destination)
-    if (payloadReal === source || payloadReal.startsWith(source + sep)) {
+    const name = stagedLinkPackageName(nodeModules, destination)
+    if (name !== undefined && !closure.has(name)) {
       await rm(destination, { recursive: true, force: true })
+      log(`assemble-payload: dropped staged link outside the runtime closure: ${name}`)
       remaining = await findSymlink(nodeModules)
       continue
     }
-    const nestedNodeModules = join(source, 'node_modules')
+    const source = await realpath(destination)
+    if (stagedLinkContainsPayload(payload, source)) {
+      await rm(destination, { recursive: true, force: true })
+      log(`assemble-payload: dropped staged link into the payload's own source tree: ${destination}`)
+      remaining = await findSymlink(nodeModules)
+      continue
+    }
     await rm(destination, { recursive: true, force: true })
-    await cp(source, destination, {
-      recursive: true,
-      dereference: true,
-      filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
-    })
+    await copyPackageTree(source, destination)
     remaining = await findSymlink(nodeModules)
   }
 }

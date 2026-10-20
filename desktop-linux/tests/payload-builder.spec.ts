@@ -1,9 +1,11 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closureDeployArgs, flattenDeployedClosure, materializeStagedLinks, redundantClosureCopies } from '../src/payload-builder.ts'
+import {
+  closureDeployArgs, flattenDeployedClosure, redundantClosureCopies, stagedLinkContainsPayload, stagedLinkPackageName,
+} from '../src/payload-builder.ts'
 
 /** Registry and store flags the in-app updater hands to every pnpm invocation. */
 const REGISTRY_FLAGS = [
@@ -35,6 +37,50 @@ describe('closureDeployArgs', () => {
   it('keeps a multi-word invocation prefix intact when no flags are given', () => {
     expect(closureDeployArgs(['pnpm', 'dlx', 'pnpm@11.7.0'], [], '/payload/runtime').slice(0, 4))
       .toEqual(['dlx', 'pnpm@11.7.0', '--filter', 'dsh-desktop-web-runtime-pkg'])
+  })
+})
+
+describe('stagedLinkContainsPayload', () => {
+  it('drops the desktop shell link whose target contains the payload', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/desktop-linux',
+    )).toBe(true)
+  })
+
+  it('keeps a link to a workspace package outside the payload', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/packages/core/agent',
+    )).toBe(false)
+  })
+
+  it('does not treat a shared name prefix as containment', () => {
+    expect(stagedLinkContainsPayload(
+      '/src/desktop-linux/resources/dsh/runtime',
+      '/src/desktop-linux-x',
+    )).toBe(false)
+  })
+})
+
+describe('stagedLinkPackageName', () => {
+  const nodeModules = '/payload/runtime/node_modules'
+
+  it('names an unscoped hoisted entry', () => {
+    expect(stagedLinkPackageName(nodeModules, `${nodeModules}/dsh-desktop-web-runtime-pkg`))
+      .toBe('dsh-desktop-web-runtime-pkg')
+  })
+
+  it('names a scoped hoisted entry', () => {
+    expect(stagedLinkPackageName(nodeModules, `${nodeModules}/@deepseek-ai/dsh-desktop-linux`))
+      .toBe('@deepseek-ai/dsh-desktop-linux')
+  })
+
+  it('leaves links nested below a package to the closure check', () => {
+    expect(stagedLinkPackageName(
+      nodeModules,
+      `${nodeModules}/@deepseek-ai/dsh-mcp-client/node_modules/@deepseek-ai/dsh-shell`,
+    )).toBeUndefined()
   })
 })
 
@@ -105,45 +151,5 @@ describe('flattenDeployedClosure', () => {
     await flattenDeployedClosure(payload)
 
     expect(existsSync(nested)).toBe(false)
-  })
-})
-
-describe('materializeStagedLinks', () => {
-  let root: string
-
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-payload-links-'))
-  })
-
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true })
-  })
-
-  it('drops a workspace link that contains the payload instead of copying into itself', async () => {
-    const shell = join(root, 'desktop-linux')
-    const payload = join(shell, 'resources', 'dsh', 'runtime')
-    const link = join(payload, 'node_modules', '@deepseek-ai', 'dsh-desktop-linux')
-    await mkdir(dirname(link), { recursive: true })
-    await writeFile(join(shell, 'package.json'), '{}')
-    await symlink(shell, link)
-
-    await materializeStagedLinks(payload)
-
-    expect(existsSync(link)).toBe(false)
-  })
-
-  it('materializes an ordinary package link as a real copy', async () => {
-    const source = join(root, 'packages', 'left-pad')
-    await mkdir(source, { recursive: true })
-    await writeFile(join(source, 'index.js'), 'export {}\n')
-    const payload = join(root, 'runtime')
-    const link = join(payload, 'node_modules', '@deepseek-ai', 'left-pad')
-    await mkdir(dirname(link), { recursive: true })
-    await symlink(source, link)
-
-    await materializeStagedLinks(payload)
-
-    expect(existsSync(link)).toBe(true)
-    expect(await readFile(join(link, 'index.js'), 'utf8')).toBe('export {}\n')
   })
 })
