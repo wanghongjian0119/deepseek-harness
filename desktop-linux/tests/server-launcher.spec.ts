@@ -80,6 +80,7 @@ describe('waitForReadyUrl', () => {
 function fakeChild(emitter: EventEmitter, exitCode: number | null = null): SpawnedChild & {
   emitter: EventEmitter
   kills: (NodeJS.Signals | undefined)[]
+  stderr: Readable
 } {
   const kills: (NodeJS.Signals | undefined)[] = []
   return {
@@ -94,6 +95,7 @@ function fakeChild(emitter: EventEmitter, exitCode: number | null = null): Spawn
     }),
     once: (event, listener) => emitter.once(event, listener),
     stdout: new Readable({ read() {} }),
+    stderr: new Readable({ read() {} }),
   }
 }
 
@@ -159,5 +161,64 @@ describe('launchServer', () => {
       '/fake/cli.js', 'web', '--port', '0', '--no-open', '--profile', 'web',
     ])
     await expect(handle.url).resolves.toBe('http://127.0.0.1:2')
+  })
+
+  it('places nodeArgs before the CLI entry so Node consumes them', async () => {
+    const child = fakeChild(new EventEmitter())
+    child.stdout = Readable.from(['dsh web: http://127.0.0.1:5\n'])
+    let capturedArgs: string[] | undefined
+    const handle = launchServer({
+      nodeBinary: '/fake/node',
+      cliEntry: '/fake/cli.js',
+      nodeArgs: ['--require', '/home/user/.dsh/desktop/backend-preload.cjs'],
+      spawnChild: (_command, args) => {
+        capturedArgs = args
+        return child
+      },
+    })
+    expect(capturedArgs).toEqual([
+      '--require', '/home/user/.dsh/desktop/backend-preload.cjs',
+      '/fake/cli.js', 'web', '--port', '0', '--no-open',
+    ])
+    await expect(handle.url).resolves.toBe('http://127.0.0.1:5')
+  })
+
+  it('raises the backend threadpool and drains stderr', async () => {
+    const child = fakeChild(new EventEmitter())
+    child.stdout = Readable.from(['dsh web: http://127.0.0.1:3\n'])
+    let capturedEnv: NodeJS.ProcessEnv | undefined
+    const onStderr = vi.fn()
+    const handle = launchServer({
+      nodeBinary: '/fake/node',
+      cliEntry: '/fake/cli.js',
+      // Pin the default path even when the test runner exports the variable.
+      env: { UV_THREADPOOL_SIZE: undefined },
+      onStderr,
+      spawnChild: (_command, _args, options) => {
+        capturedEnv = options.env
+        return child
+      },
+    })
+    expect(capturedEnv?.UV_THREADPOOL_SIZE).toBe('16')
+    child.stderr.push('backend warning\n')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(onStderr).toHaveBeenCalledWith('backend warning\n')
+    await expect(handle.url).resolves.toBe('http://127.0.0.1:3')
+  })
+
+  it('keeps an explicitly configured threadpool size', () => {
+    const child = fakeChild(new EventEmitter())
+    child.stdout = Readable.from(['dsh web: http://127.0.0.1:4\n'])
+    let capturedEnv: NodeJS.ProcessEnv | undefined
+    void launchServer({
+      nodeBinary: '/fake/node',
+      cliEntry: '/fake/cli.js',
+      env: { UV_THREADPOOL_SIZE: '8' },
+      spawnChild: (_command, _args, options) => {
+        capturedEnv = options.env
+        return child
+      },
+    })
+    expect(capturedEnv?.UV_THREADPOOL_SIZE).toBe('8')
   })
 })

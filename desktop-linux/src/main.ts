@@ -28,6 +28,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PayloadManifest } from './payload.ts'
 import { dshHome, readPayloadManifest, resolvePayloadRoot } from './payload.ts'
+import { ensureBackendPreload, locateFlockEntry, warmFlockPreloadSource } from './backend-preload.ts'
 import { launchServer, type ServerHandle } from './server-launcher.ts'
 import { LOADING_HTML, splashStatusScript } from './splash.ts'
 import { shouldOpenExternally } from './external-url.ts'
@@ -205,10 +206,18 @@ async function startBackend(): Promise<void> {
   activePayload = { root: payloadRoot, manifest }
   backendIntentionalStop = false
   setSplashStatus(STAGE_SPAWN)
+  // A payload update replaces the installed files, so warm the flock binding
+  // from this launch instead of patching them; see backend-preload.ts.
+  const flockEntry = locateFlockEntry(join(payloadRoot, manifest.cliEntry))
+  const nodeArgs = flockEntry === undefined
+    ? []
+    : ['--require', ensureBackendPreload(dshHome(), warmFlockPreloadSource(flockEntry))]
   server = launchServer({
     nodeBinary: join(payloadRoot, manifest.nodeBinary),
     cliEntry: join(payloadRoot, manifest.cliEntry),
+    nodeArgs,
     onLine: (line) => { console.log('[dsh web]', line) },
+    onStderr: (chunk) => { console.log('[dsh web stderr]', chunk.trimEnd()) },
   })
   void server.exited.then(({ code, signal }) => {
     if (backendIntentionalStop) return

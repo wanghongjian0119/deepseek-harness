@@ -18,7 +18,11 @@ set -u
 
 BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 BIN="$BIN_DIR/dsh-desktop"
-LOG="/tmp/dsh-desktop-launch.$$.log"
+# A fixed path, truncated below on every launch: the app keeps writing here for
+# the whole session (including the backend's stdout and drained stderr), so the
+# file is the only record of a boot that went wrong. Per-PID names would let
+# old logs accumulate; unlinking would discard the one that matters.
+LOG="/tmp/dsh-desktop-launch.log"
 
 : >"$LOG"
 "$BIN" "$@" >"$LOG" 2>&1 &
@@ -51,6 +55,5 @@ if grep -q "FATAL:" "$LOG" 2>/dev/null; then
   APP_PID=$!
 fi
 
-# The app keeps writing to the (now unlinked) log inode, so /tmp stays clean.
-rm -f "$LOG"
+# Keep the log for post-mortem: the next launch truncates this same path.
 wait "$APP_PID"

@@ -17,6 +17,17 @@ export const DEFAULT_READY_TIMEOUT_MS = 60_000
 /** Grace period between SIGTERM and SIGKILL when stopping the backend. */
 export const DEFAULT_STOP_GRACE_MS = 5_000
 
+/**
+ * Threadpool size for the backend process. DNS lookups, asynchronous
+ * filesystem work (static assets, session logs), and zlib share libuv's pool.
+ * With the Node default of four threads, a burst of lookups stalled by a
+ * flaky network can occupy every thread; the web server then accepts TCP
+ * connections but cannot serve a byte until a lookup returns, which looks
+ * like a frozen GUI. Extra threads keep local file work flowing during such
+ * a network stall.
+ */
+export const BACKEND_THREADPOOL_SIZE = '16'
+
 /** How many trailing output lines the readiness error keeps for diagnostics. */
 const READY_ERROR_TAIL_LINES = 30
 
@@ -28,6 +39,8 @@ export interface SpawnedChild {
   kill(signal?: NodeJS.Signals): boolean
   once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown
   stdout: NodeJS.ReadableStream
+  /** Backend stderr; the launcher drains it so the pipe can never fill. */
+  readonly stderr?: NodeJS.ReadableStream | null
 }
 
 /** Options for {@link waitForReadyUrl}. */
@@ -130,6 +143,8 @@ export interface LaunchServerOptions {
   nodeBinary: string
   /** The dsh CLI entry path (`lib/bin.js`). */
   cliEntry: string
+  /** Node options inserted before the CLI entry, such as `--require`. */
+  nodeArgs?: readonly string[]
   /** Extra web-app arguments appended after `web --port 0 --no-open`. */
   extraArgs?: readonly string[]
   /** Environment overrides merged over `process.env`. */
@@ -138,6 +153,12 @@ export interface LaunchServerOptions {
   readyTimeoutMs?: number
   /** Called with every backend stdout line. */
   onLine?: (line: string) => void
+  /**
+   * Called with raw backend stderr chunks for the supervisor log. The stream
+   * is drained even when this is omitted: an unread pipe eventually fills and
+   * blocks the backend inside its next write.
+   */
+  onStderr?: (chunk: string) => void
   /** Test hook: replace the process spawner. */
   spawnChild?: (command: string, args: string[], options: { env: NodeJS.ProcessEnv }) => SpawnedChild
 }
@@ -163,6 +184,7 @@ export interface ServerHandle {
  */
 export function launchServer(options: LaunchServerOptions): ServerHandle {
   const env = { ...process.env, ...options.env }
+  if (env.UV_THREADPOOL_SIZE === undefined) env.UV_THREADPOOL_SIZE = BACKEND_THREADPOOL_SIZE
   const spawnChild = options.spawnChild ?? ((command: string, args: string[], spawnOptions: { env: NodeJS.ProcessEnv }): SpawnedChild => {
     return spawn(command, args, { env: spawnOptions.env, stdio: ['ignore', 'pipe', 'pipe'] })
   })
@@ -170,9 +192,15 @@ export function launchServer(options: LaunchServerOptions): ServerHandle {
   // (upstream defaults openBrowser on for local CLI launches).
   const child = spawnChild(
     options.nodeBinary,
-    [options.cliEntry, 'web', '--port', '0', '--no-open', ...(options.extraArgs ?? [])],
+    [...(options.nodeArgs ?? []), options.cliEntry, 'web', '--port', '0', '--no-open', ...(options.extraArgs ?? [])],
     { env },
   )
+  // Attaching a data listener puts stderr into flowing mode, so the pipe is
+  // drained whether or not the supervisor wants the output.
+  const stderr = child.stderr
+  if (stderr !== undefined && stderr !== null) {
+    stderr.on('data', (chunk: string | Buffer) => { options.onStderr?.(chunk.toString()) })
+  }
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.once('exit', (code, signal) => { resolve({ code, signal }) })
   })

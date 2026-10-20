@@ -8,9 +8,22 @@ interface FlockBinding {
 }
 
 let binding: FlockBinding | undefined
+let loadFailure: unknown
 
+/**
+ * Load the platform binding once.
+ *
+ * On Linux the glibc build is tried first and the musl build second. Selecting
+ * by attempting the load avoids `process.report.getReport()`: that report
+ * serializes every thread, handle, and child-process channel in the process,
+ * and on a host already running MCP stdio children it can hold the event loop
+ * for minutes. The first failure is cached so a broken install cannot repeat
+ * module resolution on every lock attempt.
+ * @returns The native binding exposing the private `tryLock` callback.
+ */
 function loadBinding(): FlockBinding {
   if (binding) return binding
+  if (loadFailure !== undefined) throw loadFailure
   const { platform, arch } = process
   if (platform !== 'linux' && platform !== 'darwin') {
     throw Object.assign(new Error(`flock is not supported on ${platform}-${arch}`), {
@@ -19,16 +32,27 @@ function loadBinding(): FlockBinding {
     })
   }
 
-  let filename = 'system.node'
-  if (platform === 'linux') {
-    // Node's report types omit the libc field supplied by Linux reports.
-    const report = process.report.getReport() as { header: { glibcVersionRuntime?: string } }
-    filename = join(report.header.glibcVersionRuntime ? 'glibc' : 'musl', filename)
+  let firstError: unknown
+  try {
+    const require = createRequire(import.meta.url)
+    const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`)
+    const binDir = join(dirname(manifest), 'bin')
+    const candidates = platform === 'linux'
+      ? [join(binDir, 'glibc', 'system.node'), join(binDir, 'musl', 'system.node')]
+      : [join(binDir, 'system.node')]
+    for (const candidate of candidates) {
+      try {
+        binding = require(candidate) as FlockBinding
+        return binding
+      } catch (error) {
+        firstError ??= error
+      }
+    }
+  } catch (error) {
+    firstError = error
   }
-  const require = createRequire(import.meta.url)
-  const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`)
-  binding = require(join(dirname(manifest), 'bin', filename)) as FlockBinding
-  return binding
+  loadFailure = firstError ?? new Error(`flock: no usable native binding for ${platform}-${arch}`)
+  throw loadFailure
 }
 
 /**

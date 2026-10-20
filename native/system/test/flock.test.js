@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -138,10 +138,12 @@ async function childFixture(t, scope, fixture, args = [], { execArgv = [], inher
 }
 
 async function oracleFixture(t, scope, mode) {
+  const directory = new URL('./bin/', import.meta.url);
   const binary = process.platform === 'linux'
-    ? `./bin/${process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl'}/flock-oracle`
-    : './bin/flock-oracle';
-  const child = spawn(fileURLToPath(new URL(binary, import.meta.url)), [scope.file, mode], {
+    ? ['glibc/flock-oracle', 'musl/flock-oracle'].find((candidate) => existsSync(new URL(candidate, directory)))
+    : 'flock-oracle';
+  if (binary === undefined) throw new Error(`no flock oracle for ${process.platform}-${process.arch}`);
+  const child = spawn(fileURLToPath(new URL(binary, directory)), [scope.file, mode], {
     env: childEnvironment(),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -176,6 +178,12 @@ function cleanExit(result) {
 test('import succeeds with native addons disabled', { timeout }, async (t) => {
   const scope = resources(t);
   const child = await childFixture(t, scope, 'flock-import.js', [], { execArgv: ['--no-addons'] });
+  cleanExit(await child.waitForExit());
+});
+
+test('binding selection never generates a process report', nativeOnly, async (t) => {
+  const scope = resources(t);
+  const child = await childFixture(t, scope, 'flock-no-report.js');
   cleanExit(await child.waitForExit());
 });
 
