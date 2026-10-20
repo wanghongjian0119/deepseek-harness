@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closureDeployArgs, flattenDeployedClosure, redundantClosureCopies } from '../src/payload-builder.ts'
+import { closureDeployArgs, flattenDeployedClosure, materializeStagedLinks, redundantClosureCopies } from '../src/payload-builder.ts'
 
 /** Registry and store flags the in-app updater hands to every pnpm invocation. */
 const REGISTRY_FLAGS = [
@@ -105,5 +105,45 @@ describe('flattenDeployedClosure', () => {
     await flattenDeployedClosure(payload)
 
     expect(existsSync(nested)).toBe(false)
+  })
+})
+
+describe('materializeStagedLinks', () => {
+  let root: string
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-payload-links-'))
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('drops a workspace link that contains the payload instead of copying into itself', async () => {
+    const shell = join(root, 'desktop-linux')
+    const payload = join(shell, 'resources', 'dsh', 'runtime')
+    const link = join(payload, 'node_modules', '@deepseek-ai', 'dsh-desktop-linux')
+    await mkdir(dirname(link), { recursive: true })
+    await writeFile(join(shell, 'package.json'), '{}')
+    await symlink(shell, link)
+
+    await materializeStagedLinks(payload)
+
+    expect(existsSync(link)).toBe(false)
+  })
+
+  it('materializes an ordinary package link as a real copy', async () => {
+    const source = join(root, 'packages', 'left-pad')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'index.js'), 'export {}\n')
+    const payload = join(root, 'runtime')
+    const link = join(payload, 'node_modules', '@deepseek-ai', 'left-pad')
+    await mkdir(dirname(link), { recursive: true })
+    await symlink(source, link)
+
+    await materializeStagedLinks(payload)
+
+    expect(existsSync(link)).toBe(true)
+    expect(await readFile(join(link, 'index.js'), 'utf8')).toBe('export {}\n')
   })
 })

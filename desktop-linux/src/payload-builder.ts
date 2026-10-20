@@ -209,9 +209,18 @@ async function restoreLegacyHoists(sourceRoot: string, payload: string): Promise
   if (restored.length > 0) log(`assemble-payload: restored legacy deploy hoists: ${restored.join(', ')}`)
 }
 
-/** Replace deploy-time package links with real copies and reject any remaining link. */
-async function materializeStagedLinks(payload: string): Promise<void> {
+/**
+ * Replace deploy-time package links with real copies and reject any remaining link.
+ *
+ * A legacy deploy also links the workspace projects, including the desktop
+ * shell itself. That link points at an ancestor of the payload, so copying it
+ * would recurse into the output being assembled; such a self-reference is not
+ * part of the runtime closure and is dropped instead.
+ * @param payload - the payload root whose `node_modules` links are materialized.
+ */
+export async function materializeStagedLinks(payload: string): Promise<void> {
   const nodeModules = join(payload, 'node_modules')
+  const payloadReal = await realpath(payload)
   let remaining = await findSymlink(nodeModules)
   while (remaining !== undefined) {
     const segments = remaining.slice(nodeModules.length + 1).split(sep)
@@ -223,6 +232,11 @@ async function materializeStagedLinks(payload: string): Promise<void> {
     }
     const destination = remaining
     const source = await realpath(destination)
+    if (payloadReal === source || payloadReal.startsWith(source + sep)) {
+      await rm(destination, { recursive: true, force: true })
+      remaining = await findSymlink(nodeModules)
+      continue
+    }
     const nestedNodeModules = join(source, 'node_modules')
     await rm(destination, { recursive: true, force: true })
     await cp(source, destination, {
